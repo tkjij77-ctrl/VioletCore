@@ -1,0 +1,15 @@
+*.log
+world/
+world_nether/
+world_the_end/
+libraries/
+eula.txt
+server.properties
+bukkit.yml
+spigot.yml
+paper-global.yml
+paper-world-defaults.yml
+purpur.yml
+plugins/
+engine-plugins/*
+!engine-plugins/.gitkeep
