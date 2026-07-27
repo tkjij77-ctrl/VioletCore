@@ -29,7 +29,7 @@ engine-plugins/SmartEntityTick-1.0.0.jar
 Start VioletCore:
 
 ```bash
-java -Xmx4G -jar VioletCore-26.2-v0.6.0.jar --nogui --engine-plugins-dir engine-plugins
+java -Xmx4G -jar VioletCore-26.2-v0.7.0.jar --nogui --engine-plugins-dir engine-plugins
 ```
 
 ## Config

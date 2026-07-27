@@ -7,6 +7,24 @@
 - Repository now focuses only on VioletCore server software, Engine Plugins, patches, examples, and development docs.
 - Removed unrelated application/hosting files and documentation from the current tree.
 
+## v0.7.0 - Release Version String Fix
+
+### Added
+
+- `ServerBuildInfoImpl` now prefers the release version stored in the jar manifest.
+
+### Fixed
+
+- Startup logs now show `26.2-v0.7.0-<hash>` instead of `26.2-DEV-<branch>@<hash>` for release jars.
+- `/version` output now uses the VioletCore release string.
+
+### Verified
+
+- Built runnable server jar.
+- Smoke tested startup with SmartEntityTick.
+- Verified startup banner and Bukkit version output show `26.2-v0.7.0`.
+- Verified `/violetcore stats` still works.
+
 ## v0.6.0 - Engine Runtime Stats
 
 ### Added
