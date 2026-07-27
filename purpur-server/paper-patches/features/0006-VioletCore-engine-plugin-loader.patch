@@ -1,19 +1,19 @@
-From 06b8f713c3dce6da94bf8c7583f37fdd8ea204e8 Mon Sep 17 00:00:00 2001
+From 919c1bada1c0da0ee77b0a1b560833a817616dbd Mon Sep 17 00:00:00 2001
 From: VioletCore Builder <violetcore@example.local>
 Date: Mon, 27 Jul 2026 11:09:22 +0000
 Subject: [PATCH] VioletCore engine plugin loader
 
 ---
  .../papermc/paper/command/PaperCommands.java  |   1 +
- .../violetcore/engine/EnginePluginConfig.java | 202 +++++++++
+ .../violetcore/engine/EnginePluginConfig.java | 202 ++++++++
  .../engine/EnginePluginDescriptionParser.java | 133 ++++++
  .../engine/EnginePluginInstance.java          |  31 ++
- .../engine/EnginePluginManager.java           | 400 ++++++++++++++++++
+ .../engine/EnginePluginManager.java           | 442 ++++++++++++++++++
  .../engine/SimpleEnginePluginContext.java     |  33 ++
- .../violetcore/engine/VioletCoreCommand.java  | 104 +++++
+ .../violetcore/engine/VioletCoreCommand.java  | 118 +++++
  .../org/bukkit/craftbukkit/CraftServer.java   |   6 +
  .../java/org/bukkit/craftbukkit/Main.java     |  17 +
- 9 files changed, 927 insertions(+)
+ 9 files changed, 983 insertions(+)
  create mode 100644 src/main/java/io/violetmc/violetcore/engine/EnginePluginConfig.java
  create mode 100644 src/main/java/io/violetmc/violetcore/engine/EnginePluginDescriptionParser.java
  create mode 100644 src/main/java/io/violetmc/violetcore/engine/EnginePluginInstance.java
@@ -419,10 +419,10 @@ index 0000000000000000000000000000000000000000..be2773ed77e0b14933938ba20b6a00fa
 +}
 diff --git a/src/main/java/io/violetmc/violetcore/engine/EnginePluginManager.java b/src/main/java/io/violetmc/violetcore/engine/EnginePluginManager.java
 new file mode 100644
-index 0000000000000000000000000000000000000000..a0ab54497c81e03cf15904a394bc6dafff8c7886
+index 0000000000000000000000000000000000000000..62fb80332c14d3580d99e74ea01a2d4789463bb6
 --- /dev/null
 +++ b/src/main/java/io/violetmc/violetcore/engine/EnginePluginManager.java
-@@ -0,0 +1,400 @@
+@@ -0,0 +1,442 @@
 +package io.violetmc.violetcore.engine;
 +
 +import io.violetmc.violetcore.engine.api.EnginePlugin;
@@ -446,6 +446,8 @@ index 0000000000000000000000000000000000000000..a0ab54497c81e03cf15904a394bc6daf
 +import java.util.Objects;
 +import java.util.Set;
 +import java.util.concurrent.CopyOnWriteArrayList;
++import java.util.concurrent.ConcurrentHashMap;
++import java.util.concurrent.atomic.LongAdder;
 +import java.util.jar.JarEntry;
 +import java.util.jar.JarFile;
 +import java.util.logging.Level;
@@ -465,6 +467,9 @@ index 0000000000000000000000000000000000000000..a0ab54497c81e03cf15904a394bc6daf
 +    private static final List<EnginePluginInstance> LOADED_PLUGINS = new CopyOnWriteArrayList<>();
 +    private static final List<RegisteredTickObserver> TICK_OBSERVERS = new CopyOnWriteArrayList<>();
 +    private static final List<RegisteredEntityTickController> ENTITY_TICK_CONTROLLERS = new CopyOnWriteArrayList<>();
++    private static final LongAdder ENTITY_TICK_CONTROLLER_CHECKS = new LongAdder();
++    private static final LongAdder ENTITY_TICK_CONTROLLER_SKIPS = new LongAdder();
++    private static final ConcurrentHashMap<String, LongAdder> ENTITY_TICK_SKIPS_BY_PLUGIN = new ConcurrentHashMap<>();
 +    private static final Set<String> CLAIMED_MODIFICATION_AREAS = new HashSet<>();
 +    private static volatile boolean bootstrapped;
 +    private static volatile boolean disabled;
@@ -754,9 +759,15 @@ index 0000000000000000000000000000000000000000..a0ab54497c81e03cf15904a394bc6daf
 +    }
 +
 +    public static boolean shouldTickEntity(final org.bukkit.entity.Entity entity, final String worldName, final int tick) {
++        if (ENTITY_TICK_CONTROLLERS.isEmpty()) {
++            return true;
++        }
++        ENTITY_TICK_CONTROLLER_CHECKS.increment();
 +        for (final RegisteredEntityTickController controller : ENTITY_TICK_CONTROLLERS) {
 +            try {
 +                if (!controller.controller().shouldTickEntity(entity, worldName, tick)) {
++                    ENTITY_TICK_CONTROLLER_SKIPS.increment();
++                    ENTITY_TICK_SKIPS_BY_PLUGIN.computeIfAbsent(controller.description().name(), ignored -> new LongAdder()).increment();
 +                    return false;
 +                }
 +            } catch (Throwable throwable) {
@@ -786,6 +797,34 @@ index 0000000000000000000000000000000000000000..a0ab54497c81e03cf15904a394bc6daf
 +        return String.join("; ", newConfig.summaryLines());
 +    }
 +
++    public static long entityTickControllerChecks() {
++        return ENTITY_TICK_CONTROLLER_CHECKS.sum();
++    }
++
++    public static long entityTickControllerSkips() {
++        return ENTITY_TICK_CONTROLLER_SKIPS.sum();
++    }
++
++    public static List<String> statsSummaryLines() {
++        final java.util.ArrayList<String> lines = new java.util.ArrayList<>();
++        lines.add("entity-controller-checks=" + entityTickControllerChecks());
++        lines.add("entity-controller-skips=" + entityTickControllerSkips());
++        if (ENTITY_TICK_SKIPS_BY_PLUGIN.isEmpty()) {
++            lines.add("entity-controller-skips-by-plugin=[]");
++        } else {
++            ENTITY_TICK_SKIPS_BY_PLUGIN.entrySet().stream()
++                .sorted(java.util.Map.Entry.comparingByKey())
++                .forEach(entry -> lines.add("entity-controller-skips." + entry.getKey() + "=" + entry.getValue().sum()));
++        }
++        return java.util.List.copyOf(lines);
++    }
++
++    public static void resetStats() {
++        ENTITY_TICK_CONTROLLER_CHECKS.reset();
++        ENTITY_TICK_CONTROLLER_SKIPS.reset();
++        ENTITY_TICK_SKIPS_BY_PLUGIN.clear();
++    }
++
 +    public static void addCrashReportDetails(final SystemReport systemReport) {
 +        Objects.requireNonNull(systemReport, "systemReport");
 +        systemReport.setDetail("VioletCore Engine Plugin Bootstrap", () -> bootstrapped ? (disabled ? "disabled" : "enabled") : "not bootstrapped");
@@ -795,6 +834,8 @@ index 0000000000000000000000000000000000000000..a0ab54497c81e03cf15904a394bc6daf
 +        systemReport.setDetail("VioletCore Engine Config", () -> String.join("; ", config.summaryLines()));
 +        systemReport.setDetail("VioletCore Engine Tick Observers", () -> String.valueOf(tickObserverCount()));
 +        systemReport.setDetail("VioletCore Engine Entity Tick Controllers", () -> String.valueOf(entityTickControllerCount()));
++        systemReport.setDetail("VioletCore Engine Entity Tick Checks", () -> String.valueOf(entityTickControllerChecks()));
++        systemReport.setDetail("VioletCore Engine Entity Tick Skips", () -> String.valueOf(entityTickControllerSkips()));
 +    }
 +
 +    public static synchronized void shutdown() {
@@ -814,6 +855,7 @@ index 0000000000000000000000000000000000000000..a0ab54497c81e03cf15904a394bc6daf
 +        LOADED_PLUGINS.clear();
 +        TICK_OBSERVERS.clear();
 +        ENTITY_TICK_CONTROLLERS.clear();
++        resetStats();
 +        CLAIMED_MODIFICATION_AREAS.clear();
 +    }
 +
@@ -864,10 +906,10 @@ index 0000000000000000000000000000000000000000..4fa9c3594fe98683b76526f23f055bea
 +}
 diff --git a/src/main/java/io/violetmc/violetcore/engine/VioletCoreCommand.java b/src/main/java/io/violetmc/violetcore/engine/VioletCoreCommand.java
 new file mode 100644
-index 0000000000000000000000000000000000000000..e82350a7735b1e0912f1a8d51454ca8d04b00c34
+index 0000000000000000000000000000000000000000..72357827d27401e9e6fb3535f934555fc9b652d2
 --- /dev/null
 +++ b/src/main/java/io/violetmc/violetcore/engine/VioletCoreCommand.java
-@@ -0,0 +1,104 @@
+@@ -0,0 +1,118 @@
 +package io.violetmc.violetcore.engine;
 +
 +import io.violetmc.violetcore.engine.api.EnginePluginDescription;
@@ -889,7 +931,7 @@ index 0000000000000000000000000000000000000000..e82350a7735b1e0912f1a8d51454ca8d
 +    public VioletCoreCommand(final String name) {
 +        super(name);
 +        this.description = "VioletCore status and Engine Plugin information";
-+        this.usageMessage = "/violetcore [status|engineplugins|hooks|config|reloadconfig|version]";
++        this.usageMessage = "/violetcore [status|engineplugins|hooks|config|reloadconfig|stats|resetstats|version]";
 +        this.setAliases(List.of("vc", "vcore"));
 +        this.setPermission(PERMISSION);
 +        try {
@@ -911,6 +953,8 @@ index 0000000000000000000000000000000000000000..e82350a7735b1e0912f1a8d51454ca8d
 +            case "hooks" -> sendHooks(sender);
 +            case "config" -> sendConfig(sender);
 +            case "reloadconfig" -> reloadConfig(sender);
++            case "stats" -> sendStats(sender);
++            case "resetstats" -> resetStats(sender);
 +            case "version" -> sendVersion(sender);
 +            default -> sender.sendMessage(Component.text("Usage: " + this.usageMessage, NamedTextColor.RED));
 +        }
@@ -921,7 +965,7 @@ index 0000000000000000000000000000000000000000..e82350a7735b1e0912f1a8d51454ca8d
 +    public List<String> tabComplete(final CommandSender sender, final String alias, final String[] args, final org.bukkit.Location location) throws IllegalArgumentException {
 +        if (args.length == 1) {
 +            final String prefix = args[0].toLowerCase(Locale.ROOT);
-+            return List.of("status", "engineplugins", "hooks", "config", "reloadconfig", "version").stream().filter(s -> s.startsWith(prefix)).toList();
++            return List.of("status", "engineplugins", "hooks", "config", "reloadconfig", "stats", "resetstats", "version").stream().filter(s -> s.startsWith(prefix)).toList();
 +        }
 +        return Collections.emptyList();
 +    }
@@ -966,6 +1010,18 @@ index 0000000000000000000000000000000000000000..e82350a7735b1e0912f1a8d51454ca8d
 +        sender.sendMessage(Component.text("VioletCore engine-plugins.yml reloaded.", NamedTextColor.GREEN));
 +        sender.sendMessage(Component.text(summary, NamedTextColor.GRAY));
 +        sender.sendMessage(Component.text("Note: loading/unloading Engine Plugin jars still requires a full restart.", NamedTextColor.YELLOW));
++    }
++
++    private static void sendStats(final CommandSender sender) {
++        sender.sendMessage(Component.text("VioletCore Engine Stats", NamedTextColor.LIGHT_PURPLE));
++        for (final String line : EnginePluginManager.statsSummaryLines()) {
++            sender.sendMessage(Component.text(" - " + line, NamedTextColor.GRAY));
++        }
++    }
++
++    private static void resetStats(final CommandSender sender) {
++        EnginePluginManager.resetStats();
++        sender.sendMessage(Component.text("VioletCore Engine stats reset.", NamedTextColor.GREEN));
 +    }
 +
 +    private static void sendVersion(final CommandSender sender) {

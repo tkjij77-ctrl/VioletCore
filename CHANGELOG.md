@@ -7,6 +7,26 @@
 - Repository now focuses only on VioletCore server software, Engine Plugins, patches, examples, and development docs.
 - Removed unrelated application/hosting files and documentation from the current tree.
 
+## v0.6.0 - Engine Runtime Stats
+
+### Added
+
+- `/violetcore stats` command.
+- `/violetcore resetstats` command.
+- Core counters for EntityTickController checks and skipped entity ticks.
+- Per-Engine-Plugin skip counters.
+- Crash report details for entity tick checks/skips.
+
+### Changed
+
+- Release version updated to `26.2-v0.6.0`.
+
+### Verified
+
+- Built runnable server jar.
+- Smoke tested startup with SmartEntityTick.
+- Verified `/violetcore status`, `/violetcore stats`, `/violetcore resetstats`, and clean shutdown.
+
 ## v0.5.0 - Full Buildable Fork
 
 ### Added
