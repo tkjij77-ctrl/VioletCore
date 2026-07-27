@@ -1,5 +1,5 @@
 name: SmartEntityTick
-version: 1.0.0
+version: 1.1.0
 main: io.violetmc.smartentitytick.SmartEntityTick
 type: engine-plugin
 target-server: VioletCore

@@ -7,6 +7,31 @@
 - Repository now focuses only on VioletCore server software, Engine Plugins, patches, examples, and development docs.
 - Removed unrelated application/hosting files and documentation from the current tree.
 
+## v0.8.0 - Engine Stats Provider API
+
+### Added
+
+- `EngineStatsProvider` API for Engine Plugins.
+- Auto-registration of Engine Plugin stats providers.
+- `/violetcore stats` now includes provider-specific stats.
+- `/violetcore resetstats` now resets provider stats.
+- SmartEntityTick v1.1.0 with internal counters:
+  - checks
+  - skipped-total
+  - skipped-items
+  - skipped-xp-orbs
+  - skipped-armor-stands
+  - skipped-animals
+  - skipped-monsters
+
+### Verified
+
+- Built runnable server jar.
+- Built SmartEntityTick v1.1.0.
+- Smoke tested startup with SmartEntityTick v1.1.0.
+- Verified provider stats appear in `/violetcore stats`.
+- Verified clean shutdown.
+
 ## v0.7.0 - Release Version String Fix
 
 ### Added

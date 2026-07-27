@@ -103,3 +103,34 @@ VioletCore MVP يقرأ `mixin-configs` في metadata لكنه لا يطبق Mix
 ```text
 examples/engine-plugin/
 ```
+
+
+## EngineStatsProvider
+
+Engine Plugins may implement `EngineStatsProvider` to expose custom lines in:
+
+```text
+/violetcore stats
+```
+
+Example:
+
+```java
+public final class MyPlugin implements EnginePlugin, EngineStatsProvider {
+    @Override
+    public List<String> stats() {
+        return List.of("my-counter=" + counter.sum());
+    }
+
+    @Override
+    public void resetStats() {
+        counter.reset();
+    }
+}
+```
+
+VioletCore prefixes provider lines with:
+
+```text
+provider.<PluginName>.
+```

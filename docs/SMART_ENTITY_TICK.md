@@ -23,13 +23,13 @@ It does **not** affect players. It does **not** affect animals or monsters by de
 Download from the release assets and place it in:
 
 ```text
-engine-plugins/SmartEntityTick-1.0.0.jar
+engine-plugins/SmartEntityTick-1.1.0.jar
 ```
 
 Start VioletCore:
 
 ```bash
-java -Xmx4G -jar VioletCore-26.2-v0.7.0.jar --nogui --engine-plugins-dir engine-plugins
+java -Xmx4G -jar VioletCore-26.2-v0.8.0.jar --nogui --engine-plugins-dir engine-plugins
 ```
 
 ## Config
@@ -64,3 +64,26 @@ monster-tick-rate: 5
 modifies:
   - entity-ticking
 ```
+
+
+## v1.1.0 stats
+
+SmartEntityTick implements `EngineStatsProvider`, so `/violetcore stats` includes:
+
+```text
+provider.SmartEntityTick.checks
+provider.SmartEntityTick.skipped-total
+provider.SmartEntityTick.skipped-items
+provider.SmartEntityTick.skipped-xp-orbs
+provider.SmartEntityTick.skipped-armor-stands
+provider.SmartEntityTick.skipped-animals
+provider.SmartEntityTick.skipped-monsters
+```
+
+Use:
+
+```text
+/violetcore resetstats
+```
+
+to reset both core and SmartEntityTick counters.

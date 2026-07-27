@@ -159,6 +159,33 @@ index 0000000000000000000000000000000000000000..b95145676a8eb00cde5385637815a551
 +        return this.name + " v" + this.version;
 +    }
 +}
+diff --git a/src/main/java/io/violetmc/violetcore/engine/api/EngineStatsProvider.java b/src/main/java/io/violetmc/violetcore/engine/api/EngineStatsProvider.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..2f35abbad8efcf9828ce497232f618e51ddacc18
+--- /dev/null
++++ b/src/main/java/io/violetmc/violetcore/engine/api/EngineStatsProvider.java
+@@ -0,0 +1,21 @@
++package io.violetmc.violetcore.engine.api;
++
++import java.util.List;
++
++/**
++ * Optional statistics provider for Engine Plugins.
++ *
++ * <p>If an Engine Plugin implements this interface, VioletCore automatically
++ * includes its lines in {@code /violetcore stats} and calls {@link #resetStats()}
++ * from {@code /violetcore resetstats}.</p>
++ */
++public interface EngineStatsProvider {
++    /**
++     * @return immutable or freshly-created statistic lines for display.
++     */
++    List<String> stats();
++
++    /** Reset internal counters. */
++    default void resetStats() {
++    }
++}
 diff --git a/src/main/java/io/violetmc/violetcore/engine/api/EntityTickController.java b/src/main/java/io/violetmc/violetcore/engine/api/EntityTickController.java
 new file mode 100644
 index 0000000000000000000000000000000000000000..4ac209567b31870c521fa644e2633ee81d547c1a

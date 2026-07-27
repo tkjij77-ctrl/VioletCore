@@ -1,4 +1,4 @@
-From f8277d53ec3260ec644dd28659929863113ecd87 Mon Sep 17 00:00:00 2001
+From 65ae3dc33e2e67199fbb7a2feddda718951d1b36 Mon Sep 17 00:00:00 2001
 From: VioletCore Builder <violetcore@example.local>
 Date: Mon, 27 Jul 2026 11:09:22 +0000
 Subject: [PATCH] VioletCore engine plugin loader
@@ -7,14 +7,14 @@ Subject: [PATCH] VioletCore engine plugin loader
  .../io/papermc/paper/ServerBuildInfoImpl.java |  14 +
  .../papermc/paper/command/PaperCommands.java  |   1 +
  .../violetcore/engine/EnginePluginConfig.java | 202 ++++++++
- .../engine/EnginePluginDescriptionParser.java | 133 ++++++
+ .../engine/EnginePluginDescriptionParser.java | 133 +++++
  .../engine/EnginePluginInstance.java          |  31 ++
- .../engine/EnginePluginManager.java           | 442 ++++++++++++++++++
+ .../engine/EnginePluginManager.java           | 477 ++++++++++++++++++
  .../engine/SimpleEnginePluginContext.java     |  33 ++
  .../violetcore/engine/VioletCoreCommand.java  | 118 +++++
  .../org/bukkit/craftbukkit/CraftServer.java   |   6 +
  .../java/org/bukkit/craftbukkit/Main.java     |  17 +
- 10 files changed, 997 insertions(+)
+ 10 files changed, 1032 insertions(+)
  create mode 100644 src/main/java/io/violetmc/violetcore/engine/EnginePluginConfig.java
  create mode 100644 src/main/java/io/violetmc/violetcore/engine/EnginePluginDescriptionParser.java
  create mode 100644 src/main/java/io/violetmc/violetcore/engine/EnginePluginInstance.java
@@ -466,15 +466,16 @@ index 0000000000000000000000000000000000000000..be2773ed77e0b14933938ba20b6a00fa
 +}
 diff --git a/src/main/java/io/violetmc/violetcore/engine/EnginePluginManager.java b/src/main/java/io/violetmc/violetcore/engine/EnginePluginManager.java
 new file mode 100644
-index 0000000000000000000000000000000000000000..62fb80332c14d3580d99e74ea01a2d4789463bb6
+index 0000000000000000000000000000000000000000..2cdb1630b7933bad3a052d03be1cffa0dbc7fcac
 --- /dev/null
 +++ b/src/main/java/io/violetmc/violetcore/engine/EnginePluginManager.java
-@@ -0,0 +1,442 @@
+@@ -0,0 +1,477 @@
 +package io.violetmc.violetcore.engine;
 +
 +import io.violetmc.violetcore.engine.api.EnginePlugin;
 +import io.violetmc.violetcore.engine.api.EnginePluginDescription;
 +import io.violetmc.violetcore.engine.api.EntityTickController;
++import io.violetmc.violetcore.engine.api.EngineStatsProvider;
 +import io.violetmc.violetcore.engine.api.TickObserver;
 +import java.io.IOException;
 +import java.io.InputStream;
@@ -514,6 +515,7 @@ index 0000000000000000000000000000000000000000..62fb80332c14d3580d99e74ea01a2d47
 +    private static final List<EnginePluginInstance> LOADED_PLUGINS = new CopyOnWriteArrayList<>();
 +    private static final List<RegisteredTickObserver> TICK_OBSERVERS = new CopyOnWriteArrayList<>();
 +    private static final List<RegisteredEntityTickController> ENTITY_TICK_CONTROLLERS = new CopyOnWriteArrayList<>();
++    private static final List<RegisteredStatsProvider> STATS_PROVIDERS = new CopyOnWriteArrayList<>();
 +    private static final LongAdder ENTITY_TICK_CONTROLLER_CHECKS = new LongAdder();
 +    private static final LongAdder ENTITY_TICK_CONTROLLER_SKIPS = new LongAdder();
 +    private static final ConcurrentHashMap<String, LongAdder> ENTITY_TICK_SKIPS_BY_PLUGIN = new ConcurrentHashMap<>();
@@ -727,6 +729,9 @@ index 0000000000000000000000000000000000000000..62fb80332c14d3580d99e74ea01a2d47
 +            final SimpleEnginePluginContext context = new SimpleEnginePluginContext(description, dataDirectory, enginePluginsDirectory);
 +            plugin.onLoad(context);
 +            LOADED_PLUGINS.add(new EnginePluginInstance(description, classLoader, plugin, context));
++            if (plugin instanceof EngineStatsProvider statsProvider) {
++                registerStatsProvider(description, statsProvider);
++            }
 +            LOGGER.info("Loaded Engine Plugin " + description.displayName() + " from " + description.source().getFileName() + ".");
 +        } catch (Throwable throwable) {
 +            LOGGER.log(Level.SEVERE, "Failed to load Engine Plugin " + description.displayName() + ". It will not be enabled.", throwable);
@@ -753,6 +758,11 @@ index 0000000000000000000000000000000000000000..62fb80332c14d3580d99e74ea01a2d47
 +        }
 +        ENTITY_TICK_CONTROLLERS.add(new RegisteredEntityTickController(description, controller));
 +        LOGGER.info("Engine Plugin " + description.displayName() + " registered an entity tick controller.");
++    }
++
++    static void registerStatsProvider(final EnginePluginDescription description, final EngineStatsProvider provider) {
++        STATS_PROVIDERS.add(new RegisteredStatsProvider(description, provider));
++        LOGGER.info("Engine Plugin " + description.displayName() + " registered a stats provider.");
 +    }
 +
 +    public static void fireServerStarted() {
@@ -863,6 +873,20 @@ index 0000000000000000000000000000000000000000..62fb80332c14d3580d99e74ea01a2d47
 +                .sorted(java.util.Map.Entry.comparingByKey())
 +                .forEach(entry -> lines.add("entity-controller-skips." + entry.getKey() + "=" + entry.getValue().sum()));
 +        }
++        if (STATS_PROVIDERS.isEmpty()) {
++            lines.add("stats-providers=[]");
++        } else {
++            for (final RegisteredStatsProvider provider : STATS_PROVIDERS) {
++                try {
++                    for (final String line : provider.provider().stats()) {
++                        lines.add("provider." + provider.description().name() + "." + line);
++                    }
++                } catch (Throwable throwable) {
++                    lines.add("provider." + provider.description().name() + ".error=" + throwable.getClass().getSimpleName());
++                    LOGGER.log(Level.WARNING, "Engine Plugin " + provider.description().displayName() + " failed while collecting stats.", throwable);
++                }
++            }
++        }
 +        return java.util.List.copyOf(lines);
 +    }
 +
@@ -870,6 +894,13 @@ index 0000000000000000000000000000000000000000..62fb80332c14d3580d99e74ea01a2d47
 +        ENTITY_TICK_CONTROLLER_CHECKS.reset();
 +        ENTITY_TICK_CONTROLLER_SKIPS.reset();
 +        ENTITY_TICK_SKIPS_BY_PLUGIN.clear();
++        for (final RegisteredStatsProvider provider : STATS_PROVIDERS) {
++            try {
++                provider.provider().resetStats();
++            } catch (Throwable throwable) {
++                LOGGER.log(Level.WARNING, "Engine Plugin " + provider.description().displayName() + " failed while resetting stats.", throwable);
++            }
++        }
 +    }
 +
 +    public static void addCrashReportDetails(final SystemReport systemReport) {
@@ -903,6 +934,7 @@ index 0000000000000000000000000000000000000000..62fb80332c14d3580d99e74ea01a2d47
 +        TICK_OBSERVERS.clear();
 +        ENTITY_TICK_CONTROLLERS.clear();
 +        resetStats();
++        STATS_PROVIDERS.clear();
 +        CLAIMED_MODIFICATION_AREAS.clear();
 +    }
 +
@@ -910,6 +942,9 @@ index 0000000000000000000000000000000000000000..62fb80332c14d3580d99e74ea01a2d47
 +    }
 +
 +    private record RegisteredEntityTickController(EnginePluginDescription description, EntityTickController controller) {
++    }
++
++    private record RegisteredStatsProvider(EnginePluginDescription description, EngineStatsProvider provider) {
 +    }
 +}
 diff --git a/src/main/java/io/violetmc/violetcore/engine/SimpleEnginePluginContext.java b/src/main/java/io/violetmc/violetcore/engine/SimpleEnginePluginContext.java
