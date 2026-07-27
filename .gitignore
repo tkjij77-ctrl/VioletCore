@@ -60,3 +60,15 @@ manifest.mf
 /paper-api
 *.jar
 test-plugin.settings.gradle.kts
+
+# VioletCore runtime
+/engine-plugins/*
+!/engine-plugins/.gitkeep
+/plugins
+/world
+/world_nether
+/world_the_end
+/libraries
+/versions
+/cache
+/logs

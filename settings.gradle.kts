@@ -31,7 +31,7 @@ if (!file(".git").exists()) {
     error(errorText)
 }
 
-rootProject.name = "purpur"
+rootProject.name = "violetcore"
 for (name in listOf("purpur-api", "purpur-server")) {
     val projName = name.lowercase(Locale.ENGLISH)
     include(projName)
@@ -60,7 +60,10 @@ gradle.lifecycle.beforeProject {
     val mcVersion = providers.gradleProperty("mcVersion").get().trim()
     val purpurChannel = providers.gradleProperty("channel").get().trim()
     val purpurBuildNumber = providers.environmentVariable("BUILD_NUMBER").orNull?.trim()?.toInt()
-    val versionString = if (purpurBuildNumber == null) {
+    val violetcoreVersion = providers.gradleProperty("violetcoreVersion").orNull?.trim()
+    val versionString = if (!violetcoreVersion.isNullOrBlank()) {
+        "$mcVersion-v$violetcoreVersion"
+    } else if (purpurBuildNumber == null) {
         "$mcVersion.local-SNAPSHOT"
     } else {
         "$mcVersion.build.$purpurBuildNumber-${purpurChannel.lowercase()}"

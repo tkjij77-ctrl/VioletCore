@@ -1,0 +1,196 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: VioletCore Builder <violetcore@example.local>
+Date: Mon, 27 Jul 2026 11:09:22 +0000
+Subject: [PATCH] VioletCore Engine Plugin API
+
+
+diff --git a/src/main/java/io/violetmc/violetcore/engine/api/EnginePlugin.java b/src/main/java/io/violetmc/violetcore/engine/api/EnginePlugin.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..1810b59161aae0ed023e94dd2bcd30f214706d95
+--- /dev/null
++++ b/src/main/java/io/violetmc/violetcore/engine/api/EnginePlugin.java
+@@ -0,0 +1,26 @@
++package io.violetmc.violetcore.engine.api;
++
++/**
++ * Entry point for VioletCore Engine Plugins.
++ *
++ * <p>Engine Plugins are loaded before normal Bukkit/Paper plugins and may
++ * register low-level hooks exposed by VioletCore. They are version-locked and
++ * require a full server restart when changed.</p>
++ */
++public interface EnginePlugin {
++    /** Called during early VioletCore bootstrap. */
++    default void onLoad(final EnginePluginContext context) throws Exception {
++    }
++
++    /** Called after the Minecraft server has reached the "Done" state. */
++    default void onServerStarted(final EnginePluginContext context) throws Exception {
++    }
++
++    /** Called when the Minecraft server begins shutdown. */
++    default void onServerStopping(final EnginePluginContext context) throws Exception {
++    }
++
++    /** Called when VioletCore closes the Engine Plugin classloader. */
++    default void onUnload(final EnginePluginContext context) throws Exception {
++    }
++}
+diff --git a/src/main/java/io/violetmc/violetcore/engine/api/EnginePluginContext.java b/src/main/java/io/violetmc/violetcore/engine/api/EnginePluginContext.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..da1b0c7fae7c2d3e315ac226ab8fef05d4e4718b
+--- /dev/null
++++ b/src/main/java/io/violetmc/violetcore/engine/api/EnginePluginContext.java
+@@ -0,0 +1,30 @@
++package io.violetmc.violetcore.engine.api;
++
++import java.nio.file.Path;
++import java.util.List;
++import java.util.logging.Logger;
++
++/** Runtime context exposed to Engine Plugins during early bootstrap. */
++public interface EnginePluginContext {
++    EnginePluginDescription description();
++
++    Logger logger();
++
++    Path dataDirectory();
++
++    Path enginePluginsDirectory();
++
++    /** Snapshot of currently loaded Engine Plugin display names. */
++    List<String> loadedEnginePlugins();
++
++    /** Returns true when the plugin declared the area in {@code modifies:}. */
++    boolean isModificationDeclared(String area);
++
++    void registerTickObserver(TickObserver observer);
++
++    void registerEntityTickController(EntityTickController controller);
++
++    default void setSystemProperty(final String key, final String value) {
++        System.setProperty(key, value);
++    }
++}
+diff --git a/src/main/java/io/violetmc/violetcore/engine/api/EnginePluginDescription.java b/src/main/java/io/violetmc/violetcore/engine/api/EnginePluginDescription.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..b95145676a8eb00cde5385637815a5515f88af4a
+--- /dev/null
++++ b/src/main/java/io/violetmc/violetcore/engine/api/EnginePluginDescription.java
+@@ -0,0 +1,81 @@
++package io.violetmc.violetcore.engine.api;
++
++import java.nio.file.Path;
++import java.util.Collections;
++import java.util.List;
++import java.util.Objects;
++
++/** Immutable metadata read from {@code engine-plugin.yml}. */
++public final class EnginePluginDescription {
++    private final String name;
++    private final String version;
++    private final String mainClass;
++    private final String type;
++    private final String targetServer;
++    private final String targetVersion;
++    private final String loadPhase;
++    private final boolean reloadable;
++    private final List<String> modifies;
++    private final List<String> conflicts;
++    private final List<String> mixinConfigs;
++    private final Path source;
++
++    public EnginePluginDescription(
++        final String name,
++        final String version,
++        final String mainClass,
++        final String type,
++        final String targetServer,
++        final String targetVersion,
++        final String loadPhase,
++        final boolean reloadable,
++        final List<String> modifies,
++        final List<String> conflicts,
++        final List<String> mixinConfigs,
++        final Path source
++    ) {
++        this.name = requireText(name, "name");
++        this.version = version == null || version.isBlank() ? "unknown" : version.trim();
++        this.mainClass = mainClass == null || mainClass.isBlank() ? null : mainClass.trim();
++        this.type = type == null || type.isBlank() ? "engine-plugin" : type.trim();
++        this.targetServer = targetServer == null || targetServer.isBlank() ? "VioletCore" : targetServer.trim();
++        this.targetVersion = targetVersion == null || targetVersion.isBlank() ? "" : targetVersion.trim();
++        this.loadPhase = loadPhase == null || loadPhase.isBlank() ? "pre-minecraft" : loadPhase.trim();
++        this.reloadable = reloadable;
++        this.modifies = immutableCopy(modifies);
++        this.conflicts = immutableCopy(conflicts);
++        this.mixinConfigs = immutableCopy(mixinConfigs);
++        this.source = source;
++    }
++
++    private static String requireText(final String value, final String field) {
++        if (value == null || value.isBlank()) {
++            throw new IllegalArgumentException("Missing required engine plugin field: " + field);
++        }
++        return value.trim();
++    }
++
++    private static List<String> immutableCopy(final List<String> values) {
++        if (values == null || values.isEmpty()) {
++            return List.of();
++        }
++        return Collections.unmodifiableList(values.stream().filter(Objects::nonNull).map(String::trim).filter(s -> !s.isEmpty()).distinct().toList());
++    }
++
++    public String name() { return this.name; }
++    public String version() { return this.version; }
++    public String mainClass() { return this.mainClass; }
++    public String type() { return this.type; }
++    public String targetServer() { return this.targetServer; }
++    public String targetVersion() { return this.targetVersion; }
++    public String loadPhase() { return this.loadPhase; }
++    public boolean reloadable() { return this.reloadable; }
++    public List<String> modifies() { return this.modifies; }
++    public List<String> conflicts() { return this.conflicts; }
++    public List<String> mixinConfigs() { return this.mixinConfigs; }
++    public Path source() { return this.source; }
++
++    public String displayName() {
++        return this.name + " v" + this.version;
++    }
++}
+diff --git a/src/main/java/io/violetmc/violetcore/engine/api/EntityTickController.java b/src/main/java/io/violetmc/violetcore/engine/api/EntityTickController.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..4ac209567b31870c521fa644e2633ee81d547c1a
+--- /dev/null
++++ b/src/main/java/io/violetmc/violetcore/engine/api/EntityTickController.java
+@@ -0,0 +1,13 @@
++package io.violetmc.violetcore.engine.api;
++
++import org.bukkit.entity.Entity;
++
++/**
++ * Entity ticking hook for Engine Plugins.
++ *
++ * <p>Returning {@code false} skips the normal server tick for that entity for
++ * the current tick.</p>
++ */
++public interface EntityTickController {
++    boolean shouldTickEntity(Entity entity, String worldName, int tick);
++}
+diff --git a/src/main/java/io/violetmc/violetcore/engine/api/TickObserver.java b/src/main/java/io/violetmc/violetcore/engine/api/TickObserver.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..595544e09750cd60ce87c96c233d50351d86e7d1
+--- /dev/null
++++ b/src/main/java/io/violetmc/violetcore/engine/api/TickObserver.java
+@@ -0,0 +1,10 @@
++package io.violetmc.violetcore.engine.api;
++
++/** Safe tick hook for Engine Plugins. */
++public interface TickObserver {
++    default void onServerTickStart(final int tick) {
++    }
++
++    default void onServerTickEnd(final int tick, final double tickDurationMillis, final long remainingNanos) {
++    }
++}

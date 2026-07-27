@@ -1,0 +1,46 @@
+name: Build VioletCore
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - name: Validate core-server repository
+        run: |
+          test ! -f app.py
+          test ! -f requirements.txt
+          test -f purpur-server/paper-patches/features/0006-VioletCore-engine-plugin-loader.patch
+          test -f purpur-server/minecraft-patches/features/0022-VioletCore-engine-plugin-hooks.patch
+          test -f purpur-api/paper-patches/features/0003-VioletCore-Engine-Plugin-API.patch
+
+      - name: Apply patches
+        run: ./gradlew --no-daemon --max-workers=2 applyAllPatches
+
+      - name: Compile
+        run: ./gradlew --no-daemon --max-workers=2 :purpur-api:compileJava :purpur-server:compileJava
+
+      - name: Build runnable jar
+        run: ./gradlew --no-daemon --max-workers=2 :purpur-server:createBundlerJar -x test
+
+      - name: Upload server jar artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: VioletCore-dev-bundler
+          path: purpur-server/build/libs/*bundler*.jar
