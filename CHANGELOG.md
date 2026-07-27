@@ -7,6 +7,30 @@
 - Repository now focuses only on VioletCore server software, Engine Plugins, patches, examples, and development docs.
 - Removed unrelated application/hosting files and documentation from the current tree.
 
+## v0.9.0 - Release Automation + API Artifacts
+
+### Added
+
+- GitHub Actions release workflow for tag builds.
+- Automatic release upload for:
+  - VioletCore server jar
+  - VioletCore API jar
+  - SmartEntityTick jar
+  - SHA256 files
+  - source patches zip
+- `VioletCore-API-26.2-v0.9.0.jar` release artifact for Engine Plugin developers.
+- `docs/API_ARTIFACTS.md`.
+- `docs/ENGINE_PLUGIN_FROM_SCRATCH.md`.
+
+### Changed
+
+- Engine Plugin template now expects the official VioletCore API jar.
+- CI now builds the server, API jar, and SmartEntityTick jar.
+
+### Goal
+
+This release prepares the project for repeatable public releases and third-party Engine Plugin development.
+
 ## v0.8.0 - Engine Stats Provider API
 
 ### Added

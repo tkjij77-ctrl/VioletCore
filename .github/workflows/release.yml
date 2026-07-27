@@ -1,0 +1,68 @@
+name: Release VioletCore
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: gradle
+
+      - name: Configure Git
+        run: git config --global user.email "no-reply@github.com" && git config --global user.name "GitHub Actions"
+
+      - name: Apply patches
+        run: ./gradlew --no-daemon --max-workers=2 applyAllPatches
+
+      - name: Build server and API jars
+        run: ./gradlew --no-daemon --max-workers=2 :purpur-api:jar :purpur-server:createBundlerJar -x test
+
+      - name: Build SmartEntityTick
+        run: |
+          mkdir -p build/smartentitytick/classes release-assets
+          CP="$(ls purpur-api/build/libs/purpur-api-*.jar):$(find ~/.gradle/caches/modules-2/files-2.1 -name '*.jar' | tr '\n' ':')"
+          javac --release 25 -cp "$CP" -d build/smartentitytick/classes $(find examples/smart-entity-tick/src/main/java -name '*.java')
+          cp examples/smart-entity-tick/engine-plugin.yml build/smartentitytick/classes/engine-plugin.yml
+          SMART_VERSION=$(grep '^version:' examples/smart-entity-tick/engine-plugin.yml | awk '{print $2}')
+          jar --create --file "release-assets/SmartEntityTick-${SMART_VERSION}.jar" -C build/smartentitytick/classes .
+
+      - name: Collect release assets
+        run: |
+          mkdir -p release-assets
+          cp purpur-server/build/libs/*bundler*.jar release-assets/VioletCore-26.2-${GITHUB_REF_NAME}.jar
+          cp purpur-api/build/libs/purpur-api-*.jar release-assets/VioletCore-API-26.2-${GITHUB_REF_NAME}.jar
+          zip -qr release-assets/VioletCore-source-patches-${GITHUB_REF_NAME}.zip \
+            purpur-api/paper-patches purpur-server/paper-patches purpur-server/minecraft-patches \
+            purpur-api/build.gradle.kts.patch purpur-server/build.gradle.kts.patch \
+            README.md CHANGELOG.md LICENSE NOTICE.md SECURITY.md docs
+          cd release-assets
+          sha256sum *.jar *.zip > SHA256SUMS.txt
+          for f in *.jar *.zip; do sha256sum "$f" > "$f.sha256"; done
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: VioletCore ${{ github.ref_name }}
+          prerelease: true
+          files: |
+            release-assets/*.jar
+            release-assets/*.zip
+            release-assets/*.sha256
+            release-assets/SHA256SUMS.txt
