@@ -4,7 +4,7 @@
 
 <p align="center">
   <a href="https://github.com/tkjij77-ctrl/VioletCore/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/tkjij77-ctrl/VioletCore/ci.yml?branch=main&style=for-the-badge&label=CI"></a>
-  <a href="https://github.com/tkjij77-ctrl/VioletCore/releases/tag/v0.4.0"><img alt="Release" src="https://img.shields.io/badge/Release-v0.4.0-7c3aed?style=for-the-badge"></a>
+  <a href="https://github.com/tkjij77-ctrl/VioletCore/releases/tag/v0.5.0"><img alt="Release" src="https://img.shields.io/badge/Release-v0.5.0-7c3aed?style=for-the-badge"></a>
   <img alt="Java" src="https://img.shields.io/badge/Java-25-0ea5e9?style=for-the-badge">
   <img alt="Minecraft" src="https://img.shields.io/badge/Minecraft-26.2-22c55e?style=for-the-badge">
 </p>
@@ -23,15 +23,15 @@ Engine Plugins are not normal Bukkit plugins. They are version-locked, restart-o
 
 ### Latest server jar
 
-[Download VioletCore-26.2-v0.4.0.jar](https://github.com/tkjij77-ctrl/VioletCore/releases/download/v0.4.0/VioletCore-26.2-v0.4.0.jar)
+[Download VioletCore-26.2-v0.5.0.jar](https://github.com/tkjij77-ctrl/VioletCore/releases/download/v0.5.0/VioletCore-26.2-v0.5.0.jar)
 
 ### Latest release
 
-[VioletCore v0.4.0](https://github.com/tkjij77-ctrl/VioletCore/releases/tag/v0.4.0)
+[VioletCore v0.5.0](https://github.com/tkjij77-ctrl/VioletCore/releases/tag/v0.5.0)
 
 ### Optional official Engine Plugin
 
-[Download SmartEntityTick-1.0.0.jar](https://github.com/tkjij77-ctrl/VioletCore/releases/download/v0.4.0/SmartEntityTick-1.0.0.jar)
+[Download SmartEntityTick-1.0.0.jar](https://github.com/tkjij77-ctrl/VioletCore/releases/download/v0.5.0/SmartEntityTick-1.0.0.jar)
 
 ---
 
@@ -40,7 +40,7 @@ Engine Plugins are not normal Bukkit plugins. They are version-locked, restart-o
 Requires **Java 25**.
 
 ```bash
-java -Xmx4G -jar VioletCore-26.2-v0.4.0.jar --nogui --engine-plugins-dir engine-plugins
+java -Xmx4G -jar VioletCore-26.2-v0.5.0.jar --nogui --engine-plugins-dir engine-plugins
 ```
 
 Accept the Minecraft EULA before running a live server:

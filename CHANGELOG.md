@@ -7,6 +7,27 @@
 - Repository now focuses only on VioletCore server software, Engine Plugins, patches, examples, and development docs.
 - Removed unrelated application/hosting files and documentation from the current tree.
 
+## v0.5.0 - Full Buildable Fork
+
+### Added
+
+- Repository now contains the full Purpur/Paperweight fork structure.
+- `gradlew`, Gradle wrapper, root build files, `purpur-api`, and `purpur-server` are present.
+- GitHub Actions now builds VioletCore with `applyAllPatches`, compile tasks, and `createBundlerJar`.
+- Project versioning supports `violetcoreVersion = 0.5.0`, producing API version `26.2-v0.5.0`.
+
+### Changed
+
+- VioletCore is no longer only a patch bundle repository. It is now buildable from source like Purpur.
+- Release docs point to v0.5.0.
+
+### Verified
+
+- Fresh clone from the full fork successfully ran `./gradlew applyAllPatches`.
+- Fresh clone successfully built the runnable bundler jar.
+- Smoke tested server startup with SmartEntityTick.
+- Verified `/violetcore status`, `/violetcore config`, `/violetcore hooks`, and clean shutdown.
+
 ## v0.4.0 - Performance Core
 
 ### Added
