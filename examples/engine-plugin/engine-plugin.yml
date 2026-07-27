@@ -1,0 +1,13 @@
+name: ExampleTickObserver
+version: 1.0.0
+main: dev.violet.example.ExampleTickObserver
+type: engine-plugin
+target-server: VioletCore
+target-version: 26.2
+load-phase: pre-minecraft
+reloadable: false
+modifies:
+  - tick-observer-demo
+  - entity-ticking
+conflicts: []
+mixin-configs: []

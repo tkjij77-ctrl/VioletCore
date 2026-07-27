@@ -1,0 +1,24 @@
+--- /dev/null
++++ b/src/main/java/io/violetmc/violetcore/engine/api/EntityTickController.java
+@@ -1,0 +_,21 @@
++package io.violetmc.violetcore.engine.api;
++
++import org.bukkit.entity.Entity;
++
++/**
++ * Safe but powerful entity ticking hook for VioletCore Engine Plugins.
++ *
++ * <p>Returning {@code false} skips the normal server tick for that entity for
++ * the current tick. This can be used to build optimization plugins, but it can
++ * also change gameplay. Engine Plugins using this hook should declare
++ * {@code entity-ticking} in their {@code modifies:} metadata.</p>
++ */
++public interface EntityTickController {
++    /**
++     * @param entity Bukkit entity view for the ticking entity
++     * @param worldName Bukkit world name
++     * @param tick current server tick
++     * @return true to allow the normal entity tick, false to skip it this tick
++     */
++    boolean shouldTickEntity(Entity entity, String worldName, int tick);
++}

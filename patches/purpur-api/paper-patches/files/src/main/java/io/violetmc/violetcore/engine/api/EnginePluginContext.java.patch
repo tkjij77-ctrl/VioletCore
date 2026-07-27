@@ -1,0 +1,39 @@
+--- /dev/null
++++ b/src/main/java/io/violetmc/violetcore/engine/api/EnginePluginContext.java
+@@ -1,0 +_,36 @@
++package io.violetmc.violetcore.engine.api;
++
++import java.nio.file.Path;
++import java.util.logging.Logger;
++
++/** Runtime context exposed to Engine Plugins during early bootstrap. */
++public interface EnginePluginContext {
++    EnginePluginDescription description();
++
++    Logger logger();
++
++    Path dataDirectory();
++
++    Path enginePluginsDirectory();
++
++    /**
++     * Registers a tick observer. Tick observers are intentionally narrow and
++     * safe: they observe timing and may schedule their own work, but they do not
++     * replace VioletCore internals.
++     */
++    void registerTickObserver(TickObserver observer);
++
++    /**
++     * Registers an entity tick controller. This hook can skip normal entity
++     * ticking for selected entities and is intended for performance modules.
++     */
++    void registerEntityTickController(EntityTickController controller);
++
++    /**
++     * Allows an Engine Plugin to set a JVM system property before the server
++     * engine finishes booting.
++     */
++    default void setSystemProperty(final String key, final String value) {
++        System.setProperty(key, value);
++    }
++}

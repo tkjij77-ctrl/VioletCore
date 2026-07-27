@@ -1,0 +1,30 @@
+name: Repository Checks
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  repository-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Ensure repository is core-server only
+        run: |
+          test -z "$(find . -maxdepth 1 -name '*.py' -print)"
+          test -z "$(find . -maxdepth 1 -name 'requirements*.txt' -print)"
+
+      - name: Validate required patch files
+        run: |
+          test -f patches/purpur-server/paper-patches/features/0006-VioletCore-engine-plugin-loader.patch
+          test -f patches/purpur-server/minecraft-patches/features/0022-VioletCore-engine-plugin-hooks.patch
+          test -d patches/purpur-api/paper-patches
+
+      - name: Check documentation references
+        run: |
+          grep -q "VioletCore" README.md
+          grep -q "Engine Plugins" README.md
+          grep -q "SmartEntityTick" docs/SMART_ENTITY_TICK.md

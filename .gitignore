@@ -1,0 +1,36 @@
+# IDE/editor
+.idea/
+.vscode/
+*.iml
+
+# Java/Gradle build output
+.gradle/
+build/
+out/
+target/
+
+# Runtime server files
+world/
+world_nether/
+world_the_end/
+libraries/
+versions/
+cache/
+logs/
+eula.txt
+server.properties
+bukkit.yml
+spigot.yml
+paper-global.yml
+paper-world-defaults.yml
+purpur.yml
+engine-plugins/*
+!engine-plugins/.gitkeep
+plugins/
+
+# Large jars should be release assets, not normal git blobs
+VioletCore-*.jar
+VioletCore.jar
+server.jar
+paper.jar
+purpur.jar

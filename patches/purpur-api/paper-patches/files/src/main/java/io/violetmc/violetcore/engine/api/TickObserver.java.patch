@@ -1,0 +1,18 @@
+--- /dev/null
++++ b/src/main/java/io/violetmc/violetcore/engine/api/TickObserver.java
+@@ -1,0 +_,15 @@
++package io.violetmc.violetcore.engine.api;
++
++/**
++ * Safe tick hook for Engine Plugins.
++ *
++ * <p>This is an MVP hook. It gives Engine Plugins a stable place to observe the
++ * server tick without bytecode mixins or unsafe reload behavior.</p>
++ */
++public interface TickObserver {
++    default void onServerTickStart(final int tick) {
++    }
++
++    default void onServerTickEnd(final int tick, final double tickDurationMillis, final long remainingNanos) {
++    }
++}

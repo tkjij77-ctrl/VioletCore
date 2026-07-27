@@ -1,0 +1,80 @@
+--- /dev/null
++++ b/src/main/java/io/violetmc/violetcore/engine/api/EnginePluginDescription.java
+@@ -1,0 +_,77 @@
++package io.violetmc.violetcore.engine.api;
++
++import java.nio.file.Path;
++import java.util.Collections;
++import java.util.List;
++import java.util.Objects;
++
++/** Immutable metadata read from engine-plugin.yml. */
++public final class EnginePluginDescription {
++    private final String name;
++    private final String version;
++    private final String mainClass;
++    private final String targetServer;
++    private final String targetVersion;
++    private final String loadPhase;
++    private final boolean reloadable;
++    private final List<String> modifies;
++    private final List<String> conflicts;
++    private final List<String> mixinConfigs;
++    private final Path source;
++
++    public EnginePluginDescription(
++        final String name,
++        final String version,
++        final String mainClass,
++        final String targetServer,
++        final String targetVersion,
++        final String loadPhase,
++        final boolean reloadable,
++        final List<String> modifies,
++        final List<String> conflicts,
++        final List<String> mixinConfigs,
++        final Path source
++    ) {
++        this.name = requireText(name, "name");
++        this.version = version == null || version.isBlank() ? "unknown" : version.trim();
++        this.mainClass = mainClass == null || mainClass.isBlank() ? null : mainClass.trim();
++        this.targetServer = targetServer == null || targetServer.isBlank() ? "VioletCore" : targetServer.trim();
++        this.targetVersion = targetVersion == null || targetVersion.isBlank() ? "" : targetVersion.trim();
++        this.loadPhase = loadPhase == null || loadPhase.isBlank() ? "pre-minecraft" : loadPhase.trim();
++        this.reloadable = reloadable;
++        this.modifies = immutableCopy(modifies);
++        this.conflicts = immutableCopy(conflicts);
++        this.mixinConfigs = immutableCopy(mixinConfigs);
++        this.source = source;
++    }
++
++    private static String requireText(final String value, final String field) {
++        if (value == null || value.isBlank()) {
++            throw new IllegalArgumentException("Missing required engine plugin field: " + field);
++        }
++        return value.trim();
++    }
++
++    private static List<String> immutableCopy(final List<String> values) {
++        if (values == null || values.isEmpty()) {
++            return List.of();
++        }
++        return Collections.unmodifiableList(values.stream().filter(Objects::nonNull).map(String::trim).filter(s -> !s.isEmpty()).distinct().toList());
++    }
++
++    public String name() { return this.name; }
++    public String version() { return this.version; }
++    public String mainClass() { return this.mainClass; }
++    public String targetServer() { return this.targetServer; }
++    public String targetVersion() { return this.targetVersion; }
++    public String loadPhase() { return this.loadPhase; }
++    public boolean reloadable() { return this.reloadable; }
++    public List<String> modifies() { return this.modifies; }
++    public List<String> conflicts() { return this.conflicts; }
++    public List<String> mixinConfigs() { return this.mixinConfigs; }
++    public Path source() { return this.source; }
++
++    public String displayName() {
++        return this.name + " v" + this.version;
++    }
++}

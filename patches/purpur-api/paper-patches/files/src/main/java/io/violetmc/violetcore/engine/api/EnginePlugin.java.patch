@@ -1,0 +1,23 @@
+--- /dev/null
++++ b/src/main/java/io/violetmc/violetcore/engine/api/EnginePlugin.java
+@@ -1,0 +_,20 @@
++package io.violetmc.violetcore.engine.api;
++
++/**
++ * Entry point for VioletCore Engine Plugins.
++ *
++ * <p>Engine Plugins are loaded before normal Bukkit/Paper plugins and may
++ * register low-level hooks exposed by VioletCore. They are version-locked and
++ * require a full server restart when changed.</p>
++ */
++public interface EnginePlugin {
++    /**
++     * Called during VioletCore bootstrap, before the Paper/Purpur server layer
++     * is fully started.
++     *
++     * @param context engine plugin context
++     * @throws Exception if the plugin cannot initialize safely
++     */
++    default void onLoad(final EnginePluginContext context) throws Exception {
++    }
++}

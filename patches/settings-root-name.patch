@@ -1,0 +1,11 @@
+--- a/settings.gradle.kts
++++ b/settings.gradle.kts
+@@ -29,7 +29,7 @@ if (!file(".git").exists()) {
+     error(errorText)
+ }
+ 
+-rootProject.name = "purpur"
++rootProject.name = "violetcore"
+ for (name in listOf("purpur-api", "purpur-server")) {
+     val projName = name.lowercase(Locale.ENGLISH)
+     include(projName)

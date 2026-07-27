@@ -1,0 +1,12 @@
+name: SmartEntityTick
+version: 1.0.0
+main: io.violetmc.smartentitytick.SmartEntityTick
+type: engine-plugin
+target-server: VioletCore
+target-version: 26.2
+load-phase: pre-minecraft
+reloadable: false
+modifies:
+  - entity-ticking
+conflicts: []
+mixin-configs: []

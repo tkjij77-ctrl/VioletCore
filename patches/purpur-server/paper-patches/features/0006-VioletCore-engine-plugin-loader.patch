@@ -1,0 +1,317 @@
+From 4d6f0cfc1654be0a6315505885e535f297efbc62 Mon Sep 17 00:00:00 2001
+From: VioletCore Builder <violetcore@example.local>
+Date: Sun, 26 Jul 2026 08:44:00 +0000
+Subject: [PATCH] VioletCore engine plugin loader
+
+---
+ .../papermc/paper/command/PaperCommands.java  |   1 +
+ .../violetcore/engine/EnginePluginConfig.java |  30 ++++
+ .../engine/EnginePluginDescriptionParser.java | 133 ++++++++++++++++++
+ .../engine/EnginePluginInstance.java          |   3 +
+ .../engine/EnginePluginManager.java           |  15 ++
+ .../engine/SimpleEnginePluginContext.java     |   3 +
+ .../violetcore/engine/VioletCoreCommand.java  |   7 +
+ .../org/bukkit/craftbukkit/CraftServer.java   |   6 +
+ .../java/org/bukkit/craftbukkit/Main.java     |  17 +++
+ 9 files changed, 215 insertions(+)
+ create mode 100644 src/main/java/io/violetmc/violetcore/engine/EnginePluginConfig.java
+ create mode 100644 src/main/java/io/violetmc/violetcore/engine/EnginePluginDescriptionParser.java
+ create mode 100644 src/main/java/io/violetmc/violetcore/engine/EnginePluginInstance.java
+ create mode 100644 src/main/java/io/violetmc/violetcore/engine/EnginePluginManager.java
+ create mode 100644 src/main/java/io/violetmc/violetcore/engine/SimpleEnginePluginContext.java
+ create mode 100644 src/main/java/io/violetmc/violetcore/engine/VioletCoreCommand.java
+
+diff --git a/src/main/java/io/papermc/paper/command/PaperCommands.java b/src/main/java/io/papermc/paper/command/PaperCommands.java
+index 6dfd0b1a8..b31e5bc75 100644
+--- a/src/main/java/io/papermc/paper/command/PaperCommands.java
++++ b/src/main/java/io/papermc/paper/command/PaperCommands.java
+@@ -24,6 +24,7 @@ public final class PaperCommands {
+     public static void registerCommands(final MinecraftServer server) {
+         COMMANDS.put("paper", new PaperCommand("paper"));
+         COMMANDS.put("mspt", new MSPTCommand("mspt"));
++        COMMANDS.put("violetcore", new io.violetmc.violetcore.engine.VioletCoreCommand("violetcore"));
+ 
+         COMMANDS.forEach((s, command) -> {
+             server.server.getCommandMap().register(s, "Paper", command);
+diff --git a/src/main/java/io/violetmc/violetcore/engine/EnginePluginConfig.java b/src/main/java/io/violetmc/violetcore/engine/EnginePluginConfig.java
+new file mode 100644
+index 000000000..49441247d
+--- /dev/null
++++ b/src/main/java/io/violetmc/violetcore/engine/EnginePluginConfig.java
+@@ -0,0 +1,30 @@
++package io.violetmc.violetcore.engine;
++
++import java.io.*;
++import java.nio.charset.StandardCharsets;
++import java.nio.file.*;
++import java.util.*;
++import java.util.logging.*;
++
++final class EnginePluginConfig {
++    static final String CONFIG_FILE_NAME = "engine-plugins.yml";
++    private static final Logger LOGGER = Logger.getLogger("VioletCore/EnginePlugins");
++    private final Path path;
++    private final boolean engineEnabled, strictVersionCheck, warnUndeclaredEntityController, failFastOnPluginError, debugLogging;
++    private final Set<String> disabledPlugins;
++    private EnginePluginConfig(Path path, boolean engineEnabled, boolean strictVersionCheck, boolean warnUndeclaredEntityController, boolean failFastOnPluginError, boolean debugLogging, Set<String> disabledPlugins) { this.path=path; this.engineEnabled=engineEnabled; this.strictVersionCheck=strictVersionCheck; this.warnUndeclaredEntityController=warnUndeclaredEntityController; this.failFastOnPluginError=failFastOnPluginError; this.debugLogging=debugLogging; this.disabledPlugins=Set.copyOf(disabledPlugins); }
++    static EnginePluginConfig defaults() { return new EnginePluginConfig(Path.of(CONFIG_FILE_NAME), true, true, true, false, false, Set.of()); }
++    static EnginePluginConfig load(Path path) {
++        Path configPath = path == null ? Path.of(CONFIG_FILE_NAME) : path;
++        try { if (Files.notExists(configPath)) writeDefault(configPath); } catch (IOException ex) { LOGGER.log(Level.WARNING, "Could not write default engine-plugins.yml", ex); return defaults(); }
++        boolean engineEnabled=true, strictVersionCheck=true, warnUndeclaredEntityController=true, failFastOnPluginError=false, debugLogging=false; Set<String> disabledPlugins=new LinkedHashSet<>(); String activeList=null;
++        try (BufferedReader reader=Files.newBufferedReader(configPath, StandardCharsets.UTF_8)) { String raw; while ((raw=reader.readLine())!=null) { String line=stripComment(raw).stripTrailing(); if (line.isBlank()) continue; String stripped=line.stripLeading(); if (stripped.startsWith("- ")) { if ("disabled-plugins".equals(activeList)) { String v=unquote(stripped.substring(2).trim()); if (!v.isBlank()) disabledPlugins.add(v);} continue;} int sep=line.indexOf(':'); if (sep<0) continue; String key=line.substring(0,sep).trim().toLowerCase(Locale.ROOT).replace('_','-'); String value=line.substring(sep+1).trim(); activeList=key; switch(key){ case "engine-enabled" -> engineEnabled=parseBoolean(value,engineEnabled); case "strict-version-check" -> strictVersionCheck=parseBoolean(value,strictVersionCheck); case "warn-undeclared-entity-controller" -> warnUndeclaredEntityController=parseBoolean(value,warnUndeclaredEntityController); case "fail-fast-on-plugin-error" -> failFastOnPluginError=parseBoolean(value,failFastOnPluginError); case "debug-logging" -> debugLogging=parseBoolean(value,debugLogging); case "disabled-plugins" -> { if (value.startsWith("[") && value.endsWith("]")) { for (String item:value.substring(1,value.length()-1).split(",")) { String v=unquote(item.trim()); if(!v.isBlank()) disabledPlugins.add(v);} } else if(!value.isBlank()) disabledPlugins.add(unquote(value)); } default -> {} } } } catch(IOException ex){ LOGGER.log(Level.WARNING,"Could not read "+configPath.toAbsolutePath(),ex); return defaults(); }
++        return new EnginePluginConfig(configPath, engineEnabled, strictVersionCheck, warnUndeclaredEntityController, failFastOnPluginError, debugLogging, disabledPlugins);
++    }
++    private static void writeDefault(Path path) throws IOException { Path parent=path.toAbsolutePath().getParent(); if(parent!=null) Files.createDirectories(parent); Files.writeString(path, "# VioletCore Engine Plugin configuration\nengine-enabled: true\nstrict-version-check: true\nwarn-undeclared-entity-controller: true\nfail-fast-on-plugin-error: false\ndebug-logging: false\ndisabled-plugins: []\n", StandardCharsets.UTF_8); }
++    private static boolean parseBoolean(String value, boolean fallback){ if(value==null||value.isBlank()) return fallback; return switch(unquote(value).trim().toLowerCase(Locale.ROOT)){ case "true","yes","1","on" -> true; case "false","no","0","off" -> false; default -> fallback; }; }
++    private static String stripComment(String line){ boolean s=false,d=false; for(int i=0;i<line.length();i++){ char c=line.charAt(i); if(c=='\''&&!d)s=!s; else if(c=='"'&&!s)d=!d; else if(c=='#'&&!s&&!d)return line.substring(0,i);} return line; }
++    private static String unquote(String value){ if(value.length()>=2 && ((value.startsWith("\"")&&value.endsWith("\"")) || (value.startsWith("'")&&value.endsWith("'")))) return value.substring(1,value.length()-1); return value; }
++    Path path(){return path;} boolean engineEnabled(){return engineEnabled;} boolean strictVersionCheck(){return strictVersionCheck;} boolean warnUndeclaredEntityController(){return warnUndeclaredEntityController;} boolean failFastOnPluginError(){return failFastOnPluginError;} boolean debugLogging(){return debugLogging;} Set<String> disabledPlugins(){return disabledPlugins;} boolean isPluginDisabled(String name){return disabledPlugins.stream().anyMatch(d->d.equalsIgnoreCase(name));}
++    List<String> summaryLines(){ return List.of("path=" + path.toAbsolutePath(), "engine-enabled="+engineEnabled, "strict-version-check="+strictVersionCheck, "warn-undeclared-entity-controller="+warnUndeclaredEntityController, "fail-fast-on-plugin-error="+failFastOnPluginError, "debug-logging="+debugLogging, "disabled-plugins="+(disabledPlugins.isEmpty()?"[]":disabledPlugins.toString())); }
++}
+diff --git a/src/main/java/io/violetmc/violetcore/engine/EnginePluginDescriptionParser.java b/src/main/java/io/violetmc/violetcore/engine/EnginePluginDescriptionParser.java
+new file mode 100644
+index 000000000..9068ecc3f
+--- /dev/null
++++ b/src/main/java/io/violetmc/violetcore/engine/EnginePluginDescriptionParser.java
+@@ -0,0 +1,133 @@
++package io.violetmc.violetcore.engine;
++
++import io.violetmc.violetcore.engine.api.EnginePluginDescription;
++import java.io.BufferedReader;
++import java.io.IOException;
++import java.io.InputStream;
++import java.io.InputStreamReader;
++import java.nio.charset.StandardCharsets;
++import java.nio.file.Path;
++import java.util.ArrayList;
++import java.util.LinkedHashMap;
++import java.util.List;
++import java.util.Locale;
++import java.util.Map;
++
++final class EnginePluginDescriptionParser {
++    private EnginePluginDescriptionParser() {
++    }
++
++    static EnginePluginDescription parse(final InputStream inputStream, final Path source) throws IOException {
++        final Map<String, List<String>> values = new LinkedHashMap<>();
++        String currentListKey = null;
++
++        try (BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream, StandardCharsets.UTF_8))) {
++            String rawLine;
++            while ((rawLine = reader.readLine()) != null) {
++                String line = stripComment(rawLine).stripTrailing();
++                if (line.isBlank()) {
++                    continue;
++                }
++
++                final String stripped = line.stripLeading();
++                if (stripped.startsWith("- ")) {
++                    if (currentListKey == null) {
++                        throw new IOException("List item found before a key in " + source + ": " + rawLine);
++                    }
++                    values.computeIfAbsent(currentListKey, ignored -> new ArrayList<>()).add(unquote(stripped.substring(2).trim()));
++                    continue;
++                }
++
++                final int separator = line.indexOf(':');
++                if (separator < 0) {
++                    throw new IOException("Invalid engine plugin metadata line in " + source + ": " + rawLine);
++                }
++
++                final String key = normalizeKey(line.substring(0, separator));
++                final String value = line.substring(separator + 1).trim();
++                currentListKey = key;
++                if (value.isEmpty()) {
++                    values.computeIfAbsent(key, ignored -> new ArrayList<>());
++                } else if (value.startsWith("[") && value.endsWith("]")) {
++                    values.put(key, parseInlineList(value));
++                } else {
++                    final ArrayList<String> list = new ArrayList<>();
++                    list.add(unquote(value));
++                    values.put(key, list);
++                }
++            }
++        }
++
++        return new EnginePluginDescription(
++            first(values, "name"),
++            first(values, "version"),
++            first(values, "main"),
++            first(values, "type"),
++            first(values, "target-server"),
++            first(values, "target-version"),
++            first(values, "load-phase"),
++            Boolean.parseBoolean(firstOrDefault(values, "reloadable", "false")),
++            list(values, "modifies"),
++            list(values, "conflicts"),
++            list(values, "mixin-configs"),
++            source
++        );
++    }
++
++    private static String normalizeKey(final String key) {
++        return key.trim().toLowerCase(Locale.ROOT).replace('_', '-');
++    }
++
++    private static String first(final Map<String, List<String>> values, final String key) {
++        final List<String> list = values.get(key);
++        return list == null || list.isEmpty() ? null : list.get(0);
++    }
++
++    private static String firstOrDefault(final Map<String, List<String>> values, final String key, final String defaultValue) {
++        final String value = first(values, key);
++        return value == null ? defaultValue : value;
++    }
++
++    private static List<String> list(final Map<String, List<String>> values, final String key) {
++        final List<String> list = values.get(key);
++        return list == null ? List.of() : list;
++    }
++
++    private static List<String> parseInlineList(final String value) {
++        final String body = value.substring(1, value.length() - 1).trim();
++        if (body.isEmpty()) {
++            return List.of();
++        }
++        final List<String> output = new ArrayList<>();
++        for (final String item : body.split(",")) {
++            final String cleaned = unquote(item.trim());
++            if (!cleaned.isEmpty()) {
++                output.add(cleaned);
++            }
++        }
++        return output;
++    }
++
++    private static String stripComment(final String line) {
++        boolean inSingle = false;
++        boolean inDouble = false;
++        for (int i = 0; i < line.length(); i++) {
++            final char c = line.charAt(i);
++            if (c == '\'' && !inDouble) {
++                inSingle = !inSingle;
++            } else if (c == '"' && !inSingle) {
++                inDouble = !inDouble;
++            } else if (c == '#' && !inSingle && !inDouble) {
++                return line.substring(0, i);
++            }
++        }
++        return line;
++    }
++
++    private static String unquote(final String value) {
++        if (value.length() >= 2 && ((value.startsWith("\"") && value.endsWith("\"")) || (value.startsWith("'") && value.endsWith("'")))) {
++            return value.substring(1, value.length() - 1);
++        }
++        return value;
++    }
++}
+diff --git a/src/main/java/io/violetmc/violetcore/engine/EnginePluginInstance.java b/src/main/java/io/violetmc/violetcore/engine/EnginePluginInstance.java
+new file mode 100644
+index 000000000..36947508b
+--- /dev/null
++++ b/src/main/java/io/violetmc/violetcore/engine/EnginePluginInstance.java
+@@ -0,0 +1,3 @@
++package io.violetmc.violetcore.engine;
++import io.violetmc.violetcore.engine.api.*; import java.io.*; import java.net.URLClassLoader;
++final class EnginePluginInstance implements Closeable { private final EnginePluginDescription description; private final URLClassLoader classLoader; private final EnginePlugin plugin; private final EnginePluginContext context; EnginePluginInstance(EnginePluginDescription description, URLClassLoader classLoader, EnginePlugin plugin, EnginePluginContext context){this.description=description;this.classLoader=classLoader;this.plugin=plugin;this.context=context;} EnginePluginDescription description(){return description;} EnginePlugin plugin(){return plugin;} EnginePluginContext context(){return context;} public void close() throws IOException{classLoader.close();} }
+diff --git a/src/main/java/io/violetmc/violetcore/engine/EnginePluginManager.java b/src/main/java/io/violetmc/violetcore/engine/EnginePluginManager.java
+new file mode 100644
+index 000000000..9ce7eb089
+--- /dev/null
++++ b/src/main/java/io/violetmc/violetcore/engine/EnginePluginManager.java
+@@ -0,0 +1,15 @@
++package io.violetmc.violetcore.engine;
++import io.violetmc.violetcore.engine.api.*; import java.io.*; import java.lang.reflect.*; import java.net.*; import java.nio.file.*; import java.util.*; import java.util.concurrent.*; import java.util.jar.*; import java.util.logging.*; import java.util.regex.*; import net.minecraft.SystemReport;
++public final class EnginePluginManager { public static final String SERVER_NAME="VioletCore", TARGET_VERSION="26.2", METADATA_FILE="engine-plugin.yml", ENTITY_TICKING_AREA="entity-ticking"; private static final Pattern SAFE_PLUGIN_NAME=Pattern.compile("[A-Za-z0-9_.-]{1,64}"); private static final Logger LOGGER=Logger.getLogger("VioletCore/EnginePlugins"); private static final List<EnginePluginInstance> LOADED_PLUGINS=new CopyOnWriteArrayList<>(); private static final List<RegisteredTickObserver> TICK_OBSERVERS=new CopyOnWriteArrayList<>(); private static final List<RegisteredEntityTickController> ENTITY_TICK_CONTROLLERS=new CopyOnWriteArrayList<>(); private static final Set<String> CLAIMED_MODIFICATION_AREAS=new HashSet<>(); private static volatile boolean bootstrapped, disabled, serverStarted, serverStopping; private static volatile Path enginePluginsDirectory=Path.of("engine-plugins"); private static volatile EnginePluginConfig config=EnginePluginConfig.defaults(); private EnginePluginManager(){}
++ public static synchronized void bootstrap(Path directory, boolean disableEnginePlugins){ if(bootstrapped){LOGGER.warning("EnginePluginManager.bootstrap was called more than once; ignoring the second call.");return;} bootstrapped=true; disabled=disableEnginePlugins; enginePluginsDirectory=directory==null?Path.of("engine-plugins"):directory; config=EnginePluginConfig.load(Path.of(EnginePluginConfig.CONFIG_FILE_NAME)); LOGGER.info("Starting "+SERVER_NAME+" Engine Plugin bootstrap for target version "+TARGET_VERSION+"."); if(config.debugLogging()) LOGGER.info("Engine config: "+String.join("; ",config.summaryLines())); if(disabled||!config.engineEnabled()){disabled=true;LOGGER.warning("Engine Plugins are disabled by command-line flag, system property, or engine-plugins.yml.");return;} try{Files.createDirectories(enginePluginsDirectory);}catch(IOException ex){LOGGER.log(Level.SEVERE,"Could not create engine plugin directory "+enginePluginsDirectory.toAbsolutePath(),ex);return;} final List<Path> jars; try(var stream=Files.list(enginePluginsDirectory)){jars=stream.filter(p->Files.isRegularFile(p)&&p.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".jar")).sorted(Comparator.comparing(p->p.getFileName().toString().toLowerCase(Locale.ROOT))).toList();}catch(IOException ex){LOGGER.log(Level.SEVERE,"Could not list engine plugin directory "+enginePluginsDirectory.toAbsolutePath(),ex);return;} if(jars.isEmpty()){LOGGER.info("No Engine Plugins found in "+enginePluginsDirectory.toAbsolutePath()+".");return;} Map<String,EnginePluginDescription> accepted=new LinkedHashMap<>(); Map<String,Set<String>> claimed=new HashMap<>(); for(Path jar:jars){EnginePluginDescription d; try{d=readDescription(jar);}catch(Exception ex){LOGGER.log(Level.SEVERE,"Skipping invalid Engine Plugin jar "+jar.toAbsolutePath(),ex);continue;} if(config.isPluginDisabled(d.name())){LOGGER.warning("Skipping Engine Plugin "+d.displayName()+": disabled in "+config.path().toAbsolutePath()+".");continue;} if(!validateDescription(d)||!validateConflicts(d,accepted,claimed))continue; accepted.put(d.name(),d); claimed.put(d.name(),new HashSet<>(d.modifies())); CLAIMED_MODIFICATION_AREAS.addAll(d.modifies());} accepted.values().forEach(EnginePluginManager::load); LOGGER.info("Engine Plugin bootstrap complete. Loaded "+LOADED_PLUGINS.size()+" plugin(s): "+describeLoadedPlugins()+"."); if(!TICK_OBSERVERS.isEmpty())LOGGER.info("Registered "+TICK_OBSERVERS.size()+" Engine Plugin tick observer(s)."); if(!ENTITY_TICK_CONTROLLERS.isEmpty())LOGGER.info("Registered "+ENTITY_TICK_CONTROLLERS.size()+" Engine Plugin entity tick controller(s)."); }
++ private static EnginePluginDescription readDescription(Path jarPath)throws IOException{try(JarFile jar=new JarFile(jarPath.toFile())){JarEntry e=jar.getJarEntry(METADATA_FILE); if(e==null)e=jar.getJarEntry("violet-engine-plugin.yml"); if(e==null)e=jar.getJarEntry("META-INF/"+METADATA_FILE); if(e==null)throw new IOException("Missing "+METADATA_FILE+" metadata"); try(InputStream in=jar.getInputStream(e)){return EnginePluginDescriptionParser.parse(in,jarPath);}}}
++ private static boolean validateDescription(EnginePluginDescription d){ if(!SAFE_PLUGIN_NAME.matcher(d.name()).matches()){LOGGER.severe("Skipping Engine Plugin "+d.displayName()+": unsafe name.");return false;} if(!"engine-plugin".equalsIgnoreCase(d.type())){LOGGER.severe("Skipping Engine Plugin "+d.displayName()+": type must be engine-plugin but was "+d.type()+".");return false;} if(d.mainClass()==null){LOGGER.severe("Skipping Engine Plugin "+d.displayName()+": missing required main class.");return false;} if(!"pre-minecraft".equalsIgnoreCase(d.loadPhase())){LOGGER.severe("Skipping Engine Plugin "+d.displayName()+": only load-phase pre-minecraft is supported.");return false;} if(!SERVER_NAME.equalsIgnoreCase(d.targetServer())){LOGGER.severe("Skipping Engine Plugin "+d.displayName()+": target-server must be "+SERVER_NAME+" but was "+d.targetServer()+".");return false;} if(!TARGET_VERSION.equals(d.targetVersion())){String m="Engine Plugin "+d.displayName()+": target-version should be "+TARGET_VERSION+" but was "+d.targetVersion()+"."; if(config.strictVersionCheck()){LOGGER.severe("Skipping "+m);return false;} LOGGER.warning(m+" strict-version-check=false, loading anyway.");} if(d.reloadable())LOGGER.warning("Engine Plugin "+d.displayName()+" declares reloadable=true; restart-only enforced."); if(!d.mixinConfigs().isEmpty())LOGGER.warning("Engine Plugin "+d.displayName()+" declares mixin configs "+d.mixinConfigs()+". Mixins are not enabled yet."); return true; }
++ private static boolean validateConflicts(EnginePluginDescription d, Map<String,EnginePluginDescription> accepted, Map<String,Set<String>> claimed){ if(accepted.containsKey(d.name())){LOGGER.severe("Skipping duplicate Engine Plugin name: "+d.name());return false;} for(String c:d.conflicts())if(accepted.containsKey(c)){LOGGER.severe("Skipping Engine Plugin "+d.displayName()+": conflicts with "+c+".");return false;} for(EnginePluginDescription a:accepted.values())if(a.conflicts().contains(d.name())){LOGGER.severe("Skipping Engine Plugin "+d.displayName()+": conflict declared by "+a.displayName()+".");return false;} for(String area:d.modifies())for(var e:claimed.entrySet())if(e.getValue().contains(area)){LOGGER.severe("Skipping Engine Plugin "+d.displayName()+": modification area '"+area+"' is already claimed by "+e.getKey()+".");return false;} return true; }
++ private static void load(EnginePluginDescription d){ Path data=enginePluginsDirectory.resolve(d.name()).normalize(); if(!data.startsWith(enginePluginsDirectory.normalize())){LOGGER.severe("Skipping Engine Plugin "+d.displayName()+": data directory escapes engine plugin directory.");return;} try{Files.createDirectories(data);}catch(IOException ex){LOGGER.log(Level.SEVERE,"Could not create data directory for Engine Plugin "+d.displayName(),ex);return;} try{URLClassLoader cl=new URLClassLoader(new URL[]{d.source().toUri().toURL()},EnginePluginManager.class.getClassLoader()); Class<?> main=Class.forName(d.mainClass(),true,cl); Object obj=instantiate(main); if(!(obj instanceof EnginePlugin plugin)){cl.close();LOGGER.severe("Skipping Engine Plugin "+d.displayName()+": main class does not implement "+EnginePlugin.class.getName()+".");return;} SimpleEnginePluginContext ctx=new SimpleEnginePluginContext(d,data,enginePluginsDirectory); plugin.onLoad(ctx); LOADED_PLUGINS.add(new EnginePluginInstance(d,cl,plugin,ctx)); LOGGER.info("Loaded Engine Plugin "+d.displayName()+" from "+d.source().getFileName()+".");}catch(Throwable t){LOGGER.log(Level.SEVERE,"Failed to load Engine Plugin "+d.displayName()+". It will not be enabled.",t); if(config.failFastOnPluginError())throw new IllegalStateException("Engine Plugin "+d.displayName()+" failed and fail-fast-on-plugin-error=true",t);} }
++ private static Object instantiate(Class<?> main)throws ReflectiveOperationException{Constructor<?> c=main.getDeclaredConstructor(); c.setAccessible(true); return c.newInstance();} static void registerTickObserver(EnginePluginDescription d, TickObserver o){TICK_OBSERVERS.add(new RegisteredTickObserver(d,o));LOGGER.info("Engine Plugin "+d.displayName()+" registered a tick observer.");} static void registerEntityTickController(EnginePluginDescription d, EntityTickController c){if(config.warnUndeclaredEntityController()&&!d.modifies().contains(ENTITY_TICKING_AREA))LOGGER.warning("Engine Plugin "+d.displayName()+" registered an entity tick controller without declaring modifies: "+ENTITY_TICKING_AREA+"."); ENTITY_TICK_CONTROLLERS.add(new RegisteredEntityTickController(d,c));LOGGER.info("Engine Plugin "+d.displayName()+" registered an entity tick controller.");}
++ public static void fireServerStarted(){if(serverStarted)return; serverStarted=true; for(EnginePluginInstance i:LOADED_PLUGINS)try{i.plugin().onServerStarted(i.context());}catch(Throwable t){LOGGER.log(Level.SEVERE,"Engine Plugin "+i.description().displayName()+" failed during onServerStarted.",t);}} public static void fireServerStopping(){if(serverStopping)return; serverStopping=true; for(EnginePluginInstance i:LOADED_PLUGINS)try{i.plugin().onServerStopping(i.context());}catch(Throwable t){LOGGER.log(Level.SEVERE,"Engine Plugin "+i.description().displayName()+" failed during onServerStopping.",t);}}
++ public static void fireServerTickStart(int tick){for(RegisteredTickObserver o:TICK_OBSERVERS)try{o.observer().onServerTickStart(tick);}catch(Throwable t){TICK_OBSERVERS.remove(o);LOGGER.log(Level.SEVERE,"Disabled tick observer from "+o.description().displayName()+" after an exception in onServerTickStart.",t);}} public static void fireServerTickEnd(int tick,double ms,long remaining){for(RegisteredTickObserver o:TICK_OBSERVERS)try{o.observer().onServerTickEnd(tick,ms,remaining);}catch(Throwable t){TICK_OBSERVERS.remove(o);LOGGER.log(Level.SEVERE,"Disabled tick observer from "+o.description().displayName()+" after an exception in onServerTickEnd.",t);}} public static boolean shouldTickEntity(org.bukkit.entity.Entity entity,String worldName,int tick){for(RegisteredEntityTickController c:ENTITY_TICK_CONTROLLERS)try{if(!c.controller().shouldTickEntity(entity,worldName,tick))return false;}catch(Throwable t){ENTITY_TICK_CONTROLLERS.remove(c);LOGGER.log(Level.SEVERE,"Disabled entity tick controller from "+c.description().displayName()+" after an exception.",t);}return true;}
++ public static boolean hasLoadedPlugins(){return !LOADED_PLUGINS.isEmpty();} public static boolean isBootstrapped(){return bootstrapped;} public static boolean isDisabled(){return disabled;} public static boolean isServerStarted(){return serverStarted;} public static boolean isServerStopping(){return serverStopping;} public static EnginePluginConfig config(){return config;} public static String reloadConfig(){EnginePluginConfig nc=EnginePluginConfig.load(config.path()); config=nc; return String.join("; ",nc.summaryLines());} public static int tickObserverCount(){return TICK_OBSERVERS.size();} public static int entityTickControllerCount(){return ENTITY_TICK_CONTROLLERS.size();} public static List<EnginePluginDescription> loadedPluginDescriptions(){return LOADED_PLUGINS.stream().map(EnginePluginInstance::description).toList();} public static List<String> loadedPluginNames(){return LOADED_PLUGINS.stream().map(i->i.description().displayName()).toList();} public static String describeLoadedPlugins(){return LOADED_PLUGINS.isEmpty()?"none":String.join(", ",loadedPluginNames());} public static String describeClaimedAreas(){return CLAIMED_MODIFICATION_AREAS.isEmpty()?"none":String.join(", ",CLAIMED_MODIFICATION_AREAS);} public static void addCrashReportDetails(SystemReport r){Objects.requireNonNull(r,"systemReport"); r.setDetail("VioletCore Engine Plugin Bootstrap",()->bootstrapped?(disabled?"disabled":"enabled"):"not bootstrapped"); r.setDetail("VioletCore Engine Plugin Directory",()->enginePluginsDirectory.toAbsolutePath().toString()); r.setDetail("VioletCore Engine Plugins",EnginePluginManager::describeLoadedPlugins); r.setDetail("VioletCore Engine Claimed Areas",EnginePluginManager::describeClaimedAreas); r.setDetail("VioletCore Engine Config",()->String.join("; ",config.summaryLines())); r.setDetail("VioletCore Engine Tick Observers",()->String.valueOf(tickObserverCount())); r.setDetail("VioletCore Engine Entity Tick Controllers",()->String.valueOf(entityTickControllerCount()));}
++ public static synchronized void shutdown(){fireServerStopping(); for(EnginePluginInstance i:LOADED_PLUGINS){try{i.plugin().onUnload(i.context());}catch(Throwable t){LOGGER.log(Level.WARNING,"Engine Plugin "+i.description().displayName()+" failed during onUnload.",t);} try{i.close();}catch(IOException ex){LOGGER.log(Level.WARNING,"Failed to close classloader for Engine Plugin "+i.description().displayName(),ex);}} LOADED_PLUGINS.clear(); TICK_OBSERVERS.clear(); ENTITY_TICK_CONTROLLERS.clear(); CLAIMED_MODIFICATION_AREAS.clear();}
++ private record RegisteredTickObserver(EnginePluginDescription description, TickObserver observer){} private record RegisteredEntityTickController(EnginePluginDescription description, EntityTickController controller){}
++}
+diff --git a/src/main/java/io/violetmc/violetcore/engine/SimpleEnginePluginContext.java b/src/main/java/io/violetmc/violetcore/engine/SimpleEnginePluginContext.java
+new file mode 100644
+index 000000000..b22d552b3
+--- /dev/null
++++ b/src/main/java/io/violetmc/violetcore/engine/SimpleEnginePluginContext.java
+@@ -0,0 +1,3 @@
++package io.violetmc.violetcore.engine;
++import io.violetmc.violetcore.engine.api.*; import java.nio.file.Path; import java.util.*; import java.util.logging.Logger;
++final class SimpleEnginePluginContext implements EnginePluginContext { private final EnginePluginDescription description; private final Path dataDirectory; private final Path enginePluginsDirectory; private final Logger logger; SimpleEnginePluginContext(EnginePluginDescription description, Path dataDirectory, Path enginePluginsDirectory){this.description=description;this.dataDirectory=dataDirectory;this.enginePluginsDirectory=enginePluginsDirectory;this.logger=Logger.getLogger("VioletCore/EnginePlugin/"+description.name());} public EnginePluginDescription description(){return description;} public Logger logger(){return logger;} public Path dataDirectory(){return dataDirectory;} public Path enginePluginsDirectory(){return enginePluginsDirectory;} public List<String> loadedEnginePlugins(){return EnginePluginManager.loadedPluginNames();} public boolean isModificationDeclared(String area){return description.modifies().contains(area);} public void registerTickObserver(TickObserver observer){EnginePluginManager.registerTickObserver(description, Objects.requireNonNull(observer,"observer"));} public void registerEntityTickController(EntityTickController controller){EnginePluginManager.registerEntityTickController(description, Objects.requireNonNull(controller,"controller"));} }
+diff --git a/src/main/java/io/violetmc/violetcore/engine/VioletCoreCommand.java b/src/main/java/io/violetmc/violetcore/engine/VioletCoreCommand.java
+new file mode 100644
+index 000000000..e3fd1dea4
+--- /dev/null
++++ b/src/main/java/io/violetmc/violetcore/engine/VioletCoreCommand.java
+@@ -0,0 +1,7 @@
++package io.violetmc.violetcore.engine;
++import io.violetmc.violetcore.engine.api.EnginePluginDescription; import java.util.*; import net.kyori.adventure.text.Component; import net.kyori.adventure.text.format.NamedTextColor; import org.bukkit.Bukkit; import org.bukkit.command.*; import org.bukkit.permissions.*;
++public final class VioletCoreCommand extends Command { private static final String PERMISSION="bukkit.command.violetcore"; public VioletCoreCommand(String name){super(name);description="VioletCore status and Engine Plugin information";usageMessage="/violetcore [status|engineplugins|hooks|config|reloadconfig|version]";setAliases(List.of("vc","vcore"));setPermission(PERMISSION);try{Bukkit.getServer().getPluginManager().addPermission(new Permission(PERMISSION,PermissionDefault.OP));}catch(IllegalArgumentException ignored){}}
++ public boolean execute(CommandSender sender,String commandLabel,String[] args){if(!testPermission(sender))return true;String sub=args.length==0?"status":args[0].toLowerCase(Locale.ROOT);switch(sub){case"status"->sendStatus(sender);case"engineplugins","plugins"->sendEnginePlugins(sender);case"hooks"->sendHooks(sender);case"config"->sendConfig(sender);case"reloadconfig"->reloadConfig(sender);case"version"->sendVersion(sender);default->sender.sendMessage(Component.text("Usage: "+usageMessage,NamedTextColor.RED));}return true;} public List<String> tabComplete(CommandSender sender,String alias,String[] args,org.bukkit.Location location){if(args.length==1){String p=args[0].toLowerCase(Locale.ROOT);return List.of("status","engineplugins","hooks","config","reloadconfig","version").stream().filter(s->s.startsWith(p)).toList();}return Collections.emptyList();}
++ private static void sendStatus(CommandSender s){s.sendMessage(Component.text("VioletCore Engine Status",NamedTextColor.LIGHT_PURPLE));s.sendMessage(Component.text(" - Target: "+EnginePluginManager.TARGET_VERSION,NamedTextColor.GRAY));s.sendMessage(Component.text(" - Bootstrap: "+(EnginePluginManager.isBootstrapped()?(EnginePluginManager.isDisabled()?"disabled":"enabled"):"not bootstrapped"),NamedTextColor.GRAY));s.sendMessage(Component.text(" - Server started: "+EnginePluginManager.isServerStarted(),NamedTextColor.GRAY));s.sendMessage(Component.text(" - Loaded Engine Plugins: "+EnginePluginManager.loadedPluginNames().size(),NamedTextColor.GRAY));s.sendMessage(Component.text(" - Claimed areas: "+EnginePluginManager.describeClaimedAreas(),NamedTextColor.GRAY));s.sendMessage(Component.text(" - Config: "+EnginePluginManager.config().path().toAbsolutePath(),NamedTextColor.GRAY));}
++ private static void sendEnginePlugins(CommandSender s){List<EnginePluginDescription>d=new ArrayList<>(EnginePluginManager.loadedPluginDescriptions());if(d.isEmpty()){s.sendMessage(Component.text("No Engine Plugins loaded.",NamedTextColor.YELLOW));return;}s.sendMessage(Component.text("Loaded Engine Plugins:",NamedTextColor.LIGHT_PURPLE));for(EnginePluginDescription x:d)s.sendMessage(Component.text(" - "+x.displayName()+" ["+String.join(", ",x.modifies())+"]",NamedTextColor.GRAY));}
++ private static void sendHooks(CommandSender s){s.sendMessage(Component.text("VioletCore Engine Hooks",NamedTextColor.LIGHT_PURPLE));s.sendMessage(Component.text(" - Tick observers: "+EnginePluginManager.tickObserverCount(),NamedTextColor.GRAY));s.sendMessage(Component.text(" - Entity tick controllers: "+EnginePluginManager.entityTickControllerCount(),NamedTextColor.GRAY));} private static void sendConfig(CommandSender s){s.sendMessage(Component.text("VioletCore Engine Config",NamedTextColor.LIGHT_PURPLE));for(String line:EnginePluginManager.config().summaryLines())s.sendMessage(Component.text(" - "+line,NamedTextColor.GRAY));} private static void reloadConfig(CommandSender s){String summary=EnginePluginManager.reloadConfig();s.sendMessage(Component.text("VioletCore engine-plugins.yml reloaded.",NamedTextColor.GREEN));s.sendMessage(Component.text(summary,NamedTextColor.GRAY));s.sendMessage(Component.text("Note: loading/unloading Engine Plugin jars still requires a full restart.",NamedTextColor.YELLOW));} private static void sendVersion(CommandSender s){s.sendMessage(Component.text("VioletCore "+EnginePluginManager.TARGET_VERSION+" (Engine Plugins MVP)",NamedTextColor.LIGHT_PURPLE));}}
+diff --git a/src/main/java/org/bukkit/craftbukkit/CraftServer.java b/src/main/java/org/bukkit/craftbukkit/CraftServer.java
+index 12409ffe5..6b3f9c2fb 100644
+--- a/src/main/java/org/bukkit/craftbukkit/CraftServer.java
++++ b/src/main/java/org/bukkit/craftbukkit/CraftServer.java
+@@ -962,6 +962,12 @@ public final class CraftServer implements Server {
+ 
+     @Override
+     public void reload() {
++        // VioletCore start - Engine Plugins are restart-only
++        if (io.violetmc.violetcore.engine.EnginePluginManager.hasLoadedPlugins() && !Boolean.getBoolean("VioletCore.AllowReloadWithEnginePlugins")) {
++            this.getLogger().severe("Reload cancelled: VioletCore Engine Plugins are loaded (" + io.violetmc.violetcore.engine.EnginePluginManager.describeLoadedPlugins() + "). Engine Plugins are restart-only; stop the server and start it again instead.");
++            return;
++        }
++        // VioletCore end - Engine Plugins are restart-only
+         // Paper start - lifecycle events
+         if (io.papermc.paper.plugin.lifecycle.event.LifecycleEventRunner.INSTANCE.blocksPluginReloading()) {
+             throw new IllegalStateException(org.bukkit.command.defaults.ReloadCommand.RELOADING_DISABLED_MESSAGE);
+diff --git a/src/main/java/org/bukkit/craftbukkit/Main.java b/src/main/java/org/bukkit/craftbukkit/Main.java
+index e6ea34b18..03193e76a 100644
+--- a/src/main/java/org/bukkit/craftbukkit/Main.java
++++ b/src/main/java/org/bukkit/craftbukkit/Main.java
+@@ -39,6 +39,16 @@ public class Main {
+                         .defaultsTo(new File("plugins"))
+                         .describedAs("Plugin directory");
+ 
++                // VioletCore start - Engine Plugins
++                this.acceptsAll(asList("engine-plugins-dir", "core-plugins-dir"), "Engine Plugin directory to use")
++                        .withRequiredArg()
++                        .ofType(File.class)
++                        .defaultsTo(new File("engine-plugins"))
++                        .describedAs("Engine Plugin directory");
++
++                this.accepts("disable-engine-plugins", "Disable VioletCore Engine Plugins for this startup");
++                // VioletCore end - Engine Plugins
++
+                 this.acceptsAll(asList("h", "host", "server-ip"), "Host to listen on")
+                         .withRequiredArg()
+                         .ofType(String.class)
+@@ -209,6 +219,13 @@ public class Main {
+                 System.setProperty("library.jansi.version", "Paper"); // Paper - set meaningless jansi version to prevent git builds from crashing on Windows
+                 System.setProperty("jdk.console", "java.base"); // Paper - revert default console provider back to java.base so we can have our own jline
+ 
++                // VioletCore start - Engine Plugins
++                io.violetmc.violetcore.engine.EnginePluginManager.bootstrap(
++                    ((File) options.valueOf("engine-plugins-dir")).toPath(),
++                    options.has("disable-engine-plugins") || Boolean.getBoolean("VioletCore.DisableEnginePlugins")
++                );
++                // VioletCore end - Engine Plugins
++
+                 io.papermc.paper.PaperBootstrap.boot(options);
+             } catch (Throwable t) {
+                 t.printStackTrace();
+-- 
+2.47.3
+
