@@ -21,21 +21,30 @@ Engine Plugins are not normal Bukkit plugins. They are version-locked, restart-o
 
 ## Download
 
-### Latest server jar
+> **Note:** the `v0.9.0` release is incomplete — the server jar failed to upload and its
+> download link returns 404. Use the [latest release page](https://github.com/tkjij77-ctrl/VioletCore/releases/latest)
+> and confirm `VioletCore-26.2-<version>.jar` is listed before downloading, or
+> [build from source](#build-from-patches). The release workflow now fails instead of
+> publishing a partial release.
 
-[Download VioletCore-26.2-v0.9.0.jar](https://github.com/tkjij77-ctrl/VioletCore/releases/download/v0.9.0/VioletCore-26.2-v0.9.0.jar)
+### All releases
 
-### Latest release
+[VioletCore releases](https://github.com/tkjij77-ctrl/VioletCore/releases/latest)
 
-[VioletCore v0.9.0](https://github.com/tkjij77-ctrl/VioletCore/releases/tag/v0.9.0)
+Each complete release contains:
 
-### API jar for Engine Plugin developers
+```text
+VioletCore-26.2-<version>.jar          # server jar
+VioletCore-API-26.2-<version>.jar      # API jar for Engine Plugin developers
+SmartEntityTick-<version>.jar          # optional official Engine Plugin
+SHA256SUMS.txt                         # checksums for all of the above
+```
 
-[Download VioletCore-API-26.2-v0.9.0.jar](https://github.com/tkjij77-ctrl/VioletCore/releases/download/v0.9.0/VioletCore-API-26.2-v0.9.0.jar)
+Verify what you downloaded:
 
-### Optional official Engine Plugin
-
-[Download SmartEntityTick-1.1.0.jar](https://github.com/tkjij77-ctrl/VioletCore/releases/download/v0.9.0/SmartEntityTick-1.1.0.jar)
+```bash
+sha256sum -c SHA256SUMS.txt
+```
 
 ---
 
