@@ -5,8 +5,8 @@ Subject: [PATCH] VioletCore engine plugin hooks
 
 ---
  net/minecraft/server/MinecraftServer.java   | 6 ++++++
- net/minecraft/server/level/ServerLevel.java | 5 +++++
- 2 files changed, 11 insertions(+)
+ net/minecraft/server/level/ServerLevel.java | 11 +++++++++++
+ 2 files changed, 17 insertions(+)
 
 diff --git a/net/minecraft/server/MinecraftServer.java b/net/minecraft/server/MinecraftServer.java
 index 9e866854ad592d2f0acf7d6104fba7a5f10a8835..33a70afc2ed68a7d5e3016e3c9280997cd6ddfb0 100644
@@ -64,12 +64,18 @@ diff --git a/net/minecraft/server/level/ServerLevel.java b/net/minecraft/server/
 index 31f0e6da1dc8ffd3a51889580e4b52ca8b0d2662..8ff3bfce662aa22bc317d8ceb3792c18ee9d2bc2 100644
 --- a/net/minecraft/server/level/ServerLevel.java
 +++ b/net/minecraft/server/level/ServerLevel.java
-@@ -918,6 +918,11 @@ public class ServerLevel extends Level implements WorldGenLevel, ServerEntityGet
+@@ -918,6 +918,17 @@ public class ServerLevel extends Level implements WorldGenLevel, ServerEntityGet
                                          entity.stopRiding();
                                      }
  
 +                                    // VioletCore start - Engine Plugin entity tick controller
-+                                    if (!io.violetmc.violetcore.engine.EnginePluginManager.shouldTickEntity(entity.getBukkitEntity(), this.getWorld().getName(), this.server.getTickCount())) {
++                                    // The hasEntityTickControllers() guard must stay first: Java evaluates all
++                                    // arguments before the call, and getBukkitEntity() lazily allocates a
++                                    // CraftEntity wrapper while getWorld().getName() is a lookup. Without the
++                                    // guard both run for every entity on every tick even on servers with no
++                                    // Engine Plugins installed at all.
++                                    if (io.violetmc.violetcore.engine.EnginePluginManager.hasEntityTickControllers()
++                                        && !io.violetmc.violetcore.engine.EnginePluginManager.shouldTickEntity(entity.getBukkitEntity(), this.getWorld().getName(), this.server.getTickCount())) {
 +                                        return;
 +                                    }
 +                                    // VioletCore end - Engine Plugin entity tick controller

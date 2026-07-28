@@ -9,12 +9,12 @@ Subject: [PATCH] VioletCore engine plugin loader
  .../violetcore/engine/EnginePluginConfig.java | 202 ++++++++
  .../engine/EnginePluginDescriptionParser.java | 133 +++++
  .../engine/EnginePluginInstance.java          |  31 ++
- .../engine/EnginePluginManager.java           | 477 ++++++++++++++++++
+ .../engine/EnginePluginManager.java           | 507 ++++++++++++++++++
  .../engine/SimpleEnginePluginContext.java     |  33 ++
  .../violetcore/engine/VioletCoreCommand.java  | 118 +++++
  .../org/bukkit/craftbukkit/CraftServer.java   |   6 +
  .../java/org/bukkit/craftbukkit/Main.java     |  17 +
- 10 files changed, 1032 insertions(+)
+ 10 files changed, 1062 insertions(+)
  create mode 100644 src/main/java/io/violetmc/violetcore/engine/EnginePluginConfig.java
  create mode 100644 src/main/java/io/violetmc/violetcore/engine/EnginePluginDescriptionParser.java
  create mode 100644 src/main/java/io/violetmc/violetcore/engine/EnginePluginInstance.java
@@ -469,7 +469,7 @@ new file mode 100644
 index 0000000000000000000000000000000000000000..2cdb1630b7933bad3a052d03be1cffa0dbc7fcac
 --- /dev/null
 +++ b/src/main/java/io/violetmc/violetcore/engine/EnginePluginManager.java
-@@ -0,0 +1,477 @@
+@@ -0,0 +1,507 @@
 +package io.violetmc.violetcore.engine;
 +
 +import io.violetmc.violetcore.engine.api.EnginePlugin;
@@ -835,6 +835,15 @@ index 0000000000000000000000000000000000000000..2cdb1630b7933bad3a052d03be1cffa0
 +        return true;
 +    }
 +
++    /**
++     * Fast path guard for the entity tick hook.
++     *
++     * <p>Callers on the entity tick hot path must test this before invoking
++     * {@link #shouldTickEntity}, so that the arguments to that call are never
++     * evaluated on servers with no entity tick controllers registered.</p>
++     */
++    public static boolean hasEntityTickControllers() { return !ENTITY_TICK_CONTROLLERS.isEmpty(); }
++
 +    public static boolean hasLoadedPlugins() { return !LOADED_PLUGINS.isEmpty(); }
 +    public static boolean isBootstrapped() { return bootstrapped; }
 +    public static boolean isDisabled() { return disabled; }
@@ -918,6 +927,26 @@ index 0000000000000000000000000000000000000000..2cdb1630b7933bad3a052d03be1cffa0
 +
 +    public static synchronized void shutdown() {
 +        fireServerStopping();
++
++        // Stop dispatching into plugin code before anything is torn down, so a late
++        // tick or entity check cannot reach a half-closed plugin.
++        TICK_OBSERVERS.clear();
++        ENTITY_TICK_CONTROLLERS.clear();
++
++        // Plugin-implemented resetStats() must run while the owning classloader is
++        // still open. The previous ordering closed every classloader in the loop below
++        // and only then called resetStats(), so any provider whose reset path touched a
++        // class that had not been loaded yet would fail with NoClassDefFoundError
++        // during an otherwise clean shutdown.
++        for (final RegisteredStatsProvider provider : STATS_PROVIDERS) {
++            try {
++                provider.provider().resetStats();
++            } catch (Throwable throwable) {
++                LOGGER.log(Level.WARNING, "Engine Plugin " + provider.description().displayName() + " failed while resetting stats.", throwable);
++            }
++        }
++        STATS_PROVIDERS.clear();
++
 +        for (final EnginePluginInstance instance : LOADED_PLUGINS) {
 +            try {
 +                instance.plugin().onUnload(instance.context());
@@ -931,10 +960,11 @@ index 0000000000000000000000000000000000000000..2cdb1630b7933bad3a052d03be1cffa0
 +            }
 +        }
 +        LOADED_PLUGINS.clear();
-+        TICK_OBSERVERS.clear();
-+        ENTITY_TICK_CONTROLLERS.clear();
-+        resetStats();
-+        STATS_PROVIDERS.clear();
++
++        // Counters are core-owned, so clearing them last is safe.
++        ENTITY_TICK_CONTROLLER_CHECKS.reset();
++        ENTITY_TICK_CONTROLLER_SKIPS.reset();
++        ENTITY_TICK_SKIPS_BY_PLUGIN.clear();
 +        CLAIMED_MODIFICATION_AREAS.clear();
 +    }
 +

@@ -11,8 +11,11 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.atomic.LongAdder;
+import org.bukkit.World;
+import org.bukkit.entity.Animals;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.EntityType;
+import org.bukkit.entity.Monster;
 import org.bukkit.entity.Player;
 
 public final class SmartEntityTick implements EnginePlugin, EngineStatsProvider {
@@ -24,6 +27,13 @@ public final class SmartEntityTick implements EnginePlugin, EngineStatsProvider 
     private final LongAdder skippedAnimals = new LongAdder();
     private final LongAdder skippedMonsters = new LongAdder();
     private Settings settings;
+
+    private static final int CATEGORY_NONE = 0;
+    private static final int CATEGORY_ITEM = 1;
+    private static final int CATEGORY_XP_ORB = 2;
+    private static final int CATEGORY_ARMOR_STAND = 3;
+    private static final int CATEGORY_ANIMAL = 4;
+    private static final int CATEGORY_MONSTER = 5;
 
     @Override
     public void onLoad(final EnginePluginContext context) throws Exception {
@@ -38,19 +48,93 @@ public final class SmartEntityTick implements EnginePlugin, EngineStatsProvider 
     }
 
     private boolean shouldTick(final Entity entity, final int tick) {
-        if (!this.settings.enabled) return true;
-        if (entity instanceof Player) return true;
-        if (entity.isDead() || !entity.isValid()) return true;
-        if (!isFarFromPlayers(entity)) return true;
+        if (!this.settings.enabled) {
+            return true;
+        }
+        if (entity instanceof Player) {
+            return true;
+        }
+
+        // Resolve the category and tick rate FIRST. The previous implementation ran an
+        // O(players) distance scan for every entity on every tick, including the large
+        // majority of entities that are never throttled. Non-candidates now exit in O(1).
+        final int category = categoryOf(entity);
+        if (category == CATEGORY_NONE) {
+            return true;
+        }
+
+        final int rate = rateFor(category);
+        if (rate <= 1) {
+            return true;
+        }
+
+        // On a tick where this entity is scheduled to run anyway there is nothing to
+        // decide, so the expensive distance scan is skipped entirely.
+        if (tick % rate == 0) {
+            return true;
+        }
+
+        if (entity.isDead() || !entity.isValid()) {
+            return true;
+        }
+        if (!isFarFromPlayers(entity)) {
+            return true;
+        }
 
         this.checks.increment();
+        return skip(counterFor(category));
+    }
+
+    /**
+     * Classifies an entity using Bukkit's own type hierarchy.
+     *
+     * <p>The previous implementation matched substrings against {@code EntityType.name()},
+     * which mis-bucketed many vanilla types: {@code ZOMBIFIED_PIGLIN} and {@code PIGLIN_BRUTE}
+     * matched "PIG" and were treated as animals, {@code ZOMBIE_HORSE} and
+     * {@code SKELETON_HORSE} matched both lists at once, and {@code MOOSHROOM},
+     * {@code SNIFFER}, {@code ARMADILLO}, {@code ZOGLIN} and {@code ENDERMITE} matched
+     * neither. Checking {@link Monster} before {@link Animals} also makes hybrid
+     * undead-mount types resolve deterministically instead of depending on branch order.</p>
+     */
+    private int categoryOf(final Entity entity) {
         final EntityType type = entity.getType();
-        if (type == EntityType.ITEM && this.settings.itemTickRate > 1 && tick % this.settings.itemTickRate != 0) return skip(this.skippedItems);
-        if (type == EntityType.EXPERIENCE_ORB && this.settings.xpOrbTickRate > 1 && tick % this.settings.xpOrbTickRate != 0) return skip(this.skippedXpOrbs);
-        if (type == EntityType.ARMOR_STAND && this.settings.armorStandTickRate > 1 && tick % this.settings.armorStandTickRate != 0) return skip(this.skippedArmorStands);
-        if (this.settings.affectAnimals && isAnimal(type) && this.settings.animalTickRate > 1 && tick % this.settings.animalTickRate != 0) return skip(this.skippedAnimals);
-        if (this.settings.affectMonsters && isMonster(type) && this.settings.monsterTickRate > 1 && tick % this.settings.monsterTickRate != 0) return skip(this.skippedMonsters);
-        return true;
+        if (type == EntityType.ITEM) {
+            return CATEGORY_ITEM;
+        }
+        if (type == EntityType.EXPERIENCE_ORB) {
+            return CATEGORY_XP_ORB;
+        }
+        if (type == EntityType.ARMOR_STAND) {
+            return CATEGORY_ARMOR_STAND;
+        }
+        if (this.settings.affectMonsters && entity instanceof Monster) {
+            return CATEGORY_MONSTER;
+        }
+        if (this.settings.affectAnimals && entity instanceof Animals) {
+            return CATEGORY_ANIMAL;
+        }
+        return CATEGORY_NONE;
+    }
+
+    private int rateFor(final int category) {
+        return switch (category) {
+            case CATEGORY_ITEM -> this.settings.itemTickRate;
+            case CATEGORY_XP_ORB -> this.settings.xpOrbTickRate;
+            case CATEGORY_ARMOR_STAND -> this.settings.armorStandTickRate;
+            case CATEGORY_ANIMAL -> this.settings.animalTickRate;
+            case CATEGORY_MONSTER -> this.settings.monsterTickRate;
+            default -> 1;
+        };
+    }
+
+    private LongAdder counterFor(final int category) {
+        return switch (category) {
+            case CATEGORY_ITEM -> this.skippedItems;
+            case CATEGORY_XP_ORB -> this.skippedXpOrbs;
+            case CATEGORY_ARMOR_STAND -> this.skippedArmorStands;
+            case CATEGORY_ANIMAL -> this.skippedAnimals;
+            default -> this.skippedMonsters;
+        };
     }
 
     private boolean skip(final LongAdder adder) {
@@ -84,23 +168,39 @@ public final class SmartEntityTick implements EnginePlugin, EngineStatsProvider 
     }
 
     private boolean isFarFromPlayers(final Entity entity) {
-        final double minDistanceSquared = this.settings.minDistanceFromPlayer * this.settings.minDistanceFromPlayer;
-        for (final Player player : entity.getWorld().getPlayers()) {
-            if (!player.isOnline() || player.isDead()) continue;
-            if (player.getWorld() != entity.getWorld()) continue;
-            if (player.getLocation().distanceSquared(entity.getLocation()) < minDistanceSquared) return false;
+        final World world = entity.getWorld();
+        // getPlayers() returns a fresh defensive copy in CraftBukkit and was previously
+        // invoked twice per entity per tick. It is now resolved once.
+        final List<Player> players = world.getPlayers();
+        if (players.isEmpty()) {
+            // Conservative: with nobody in the world, leave ticking untouched rather than
+            // silently changing hopper/farm timings in unattended dimensions.
+            return false;
         }
-        return !entity.getWorld().getPlayers().isEmpty();
-    }
 
-    private static boolean isAnimal(final EntityType type) {
-        final String name = type.name();
-        return name.contains("COW") || name.contains("PIG") || name.contains("SHEEP") || name.contains("CHICKEN") || name.contains("RABBIT") || name.contains("HORSE") || name.contains("DONKEY") || name.contains("LLAMA") || name.contains("GOAT") || name.contains("CAMEL");
-    }
+        final double minDistance = this.settings.minDistanceFromPlayer;
+        final double minDistanceSquared = minDistance * minDistance;
 
-    private static boolean isMonster(final EntityType type) {
-        final String name = type.name();
-        return name.contains("ZOMBIE") || name.contains("SKELETON") || name.contains("CREEPER") || name.contains("SPIDER") || name.contains("ENDERMAN") || name.contains("DROWNED") || name.contains("HUSK") || name.contains("STRAY") || name.contains("WITCH") || name.contains("SLIME");
+        // Raw coordinate comparison avoids allocating a Location for the entity and for
+        // every player on every check. Iterating this world's own player list also makes
+        // the previous per-player world identity test redundant.
+        final double ex = entity.getX();
+        final double ey = entity.getY();
+        final double ez = entity.getZ();
+
+        for (int i = 0; i < players.size(); i++) {
+            final Player player = players.get(i);
+            if (!player.isOnline() || player.isDead()) {
+                continue;
+            }
+            final double dx = player.getX() - ex;
+            final double dy = player.getY() - ey;
+            final double dz = player.getZ() - ez;
+            if (dx * dx + dy * dy + dz * dz < minDistanceSquared) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private record Settings(boolean enabled, int minDistanceFromPlayer, int itemTickRate, int xpOrbTickRate, int armorStandTickRate, boolean affectAnimals, int animalTickRate, boolean affectMonsters, int monsterTickRate) {
