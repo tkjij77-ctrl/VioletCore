@@ -36,6 +36,7 @@ jobs:
 
       - name: Build SmartEntityTick
         run: |
+          set -euo pipefail
           mkdir -p build/smartentitytick/classes release-assets
           CP="$(ls purpur-api/build/libs/purpur-api-*.jar):$(find ~/.gradle/caches/modules-2/files-2.1 -name '*.jar' | tr '\n' ':')"
           javac --release 25 -cp "$CP" -d build/smartentitytick/classes $(find examples/smart-entity-tick/src/main/java -name '*.java')
@@ -45,22 +46,89 @@ jobs:
 
       - name: Collect release assets
         run: |
+          set -euo pipefail
           mkdir -p release-assets
-          cp purpur-server/build/libs/*bundler*.jar release-assets/VioletCore-26.2-${GITHUB_REF_NAME}.jar
-          cp purpur-api/build/libs/purpur-api-*.jar release-assets/VioletCore-API-26.2-${GITHUB_REF_NAME}.jar
-          zip -qr release-assets/VioletCore-source-patches-${GITHUB_REF_NAME}.zip \
+
+          # Resolve exactly one bundler jar. The previous `cp .../*bundler*.jar <dest>`
+          # silently misbehaved when paperweight emitted more than one match, which is
+          # how v0.9.0 shipped a checksum for a server jar that was never uploaded.
+          mapfile -t BUNDLER_JARS < <(find purpur-server/build/libs -maxdepth 1 -name '*bundler*.jar' -type f | sort)
+          if [ "${#BUNDLER_JARS[@]}" -ne 1 ]; then
+            echo "::error::Expected exactly 1 bundler jar, found ${#BUNDLER_JARS[@]}:"
+            printf '  %s\n' "${BUNDLER_JARS[@]:-<none>}"
+            ls -la purpur-server/build/libs/ || true
+            exit 1
+          fi
+          cp "${BUNDLER_JARS[0]}" "release-assets/VioletCore-26.2-${GITHUB_REF_NAME}.jar"
+
+          mapfile -t API_JARS < <(find purpur-api/build/libs -maxdepth 1 -name 'purpur-api-*.jar' -type f ! -name '*-sources.jar' ! -name '*-javadoc.jar' | sort)
+          if [ "${#API_JARS[@]}" -ne 1 ]; then
+            echo "::error::Expected exactly 1 API jar, found ${#API_JARS[@]}:"
+            printf '  %s\n' "${API_JARS[@]:-<none>}"
+            ls -la purpur-api/build/libs/ || true
+            exit 1
+          fi
+          cp "${API_JARS[0]}" "release-assets/VioletCore-API-26.2-${GITHUB_REF_NAME}.jar"
+
+          zip -qr "release-assets/VioletCore-source-patches-${GITHUB_REF_NAME}.zip" \
             purpur-api/paper-patches purpur-server/paper-patches purpur-server/minecraft-patches \
             purpur-api/build.gradle.kts.patch purpur-server/build.gradle.kts.patch \
             README.md CHANGELOG.md LICENSE NOTICE.md SECURITY.md docs
+
           cd release-assets
           sha256sum *.jar *.zip > SHA256SUMS.txt
           for f in *.jar *.zip; do sha256sum "$f" > "$f.sha256"; done
+
+      - name: Verify release assets
+        run: |
+          set -euo pipefail
+          cd release-assets
+
+          SERVER_JAR="VioletCore-26.2-${GITHUB_REF_NAME}.jar"
+          API_JAR="VioletCore-API-26.2-${GITHUB_REF_NAME}.jar"
+
+          # Every artifact named in SHA256SUMS.txt must exist and match. This is the
+          # gate that would have caught the missing v0.9.0 server jar.
+          sha256sum -c SHA256SUMS.txt
+
+          for required in "$SERVER_JAR" "$API_JAR"; do
+            if [ ! -f "$required" ]; then
+              echo "::error::Required release asset missing: $required"
+              ls -la
+              exit 1
+            fi
+            if [ ! -s "$required" ]; then
+              echo "::error::Required release asset is empty: $required"
+              exit 1
+            fi
+          done
+
+          # The server jar must be a real, runnable bundler jar.
+          if ! unzip -l "$SERVER_JAR" >/dev/null 2>&1; then
+            echo "::error::$SERVER_JAR is not a valid zip/jar archive"
+            exit 1
+          fi
+          if ! unzip -p "$SERVER_JAR" META-INF/MANIFEST.MF | grep -q '^Main-Class:'; then
+            echo "::error::$SERVER_JAR has no Main-Class; it is not runnable"
+            unzip -p "$SERVER_JAR" META-INF/MANIFEST.MF || true
+            exit 1
+          fi
+
+          # The API jar must actually carry the Engine Plugin API.
+          if ! unzip -l "$API_JAR" | grep -q 'io/violetmc/violetcore/engine/api/EnginePlugin.class'; then
+            echo "::error::$API_JAR does not contain the Engine Plugin API classes"
+            exit 1
+          fi
+
+          echo "All release assets verified:"
+          ls -la
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           name: VioletCore ${{ github.ref_name }}
           prerelease: true
+          fail_on_unmatched_files: true
           files: |
             release-assets/*.jar
             release-assets/*.zip

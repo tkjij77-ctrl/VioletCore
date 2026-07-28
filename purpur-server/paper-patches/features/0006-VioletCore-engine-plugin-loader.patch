@@ -4,17 +4,16 @@ Date: Mon, 27 Jul 2026 11:09:22 +0000
 Subject: [PATCH] VioletCore engine plugin loader
 
 ---
- .../io/papermc/paper/ServerBuildInfoImpl.java |  14 +
- .../papermc/paper/command/PaperCommands.java  |   1 +
- .../violetcore/engine/EnginePluginConfig.java | 202 ++++++++
- .../engine/EnginePluginDescriptionParser.java | 133 +++++
- .../engine/EnginePluginInstance.java          |  31 ++
- .../engine/EnginePluginManager.java           | 507 ++++++++++++++++++
- .../engine/SimpleEnginePluginContext.java     |  33 ++
- .../violetcore/engine/VioletCoreCommand.java  | 118 +++++
- .../org/bukkit/craftbukkit/CraftServer.java   |   6 +
- .../java/org/bukkit/craftbukkit/Main.java     |  17 +
- 10 files changed, 1062 insertions(+)
+ .../io/papermc/paper/ServerBuildInfoImpl.java |  24 ++++++++++++++++++++++++
+ .../violetcore/engine/EnginePluginConfig.java | 202 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ .../engine/EnginePluginDescriptionParser.java | 133 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ .../engine/EnginePluginInstance.java          |  31 +++++++++++++++++++++++++++++++
+ .../engine/EnginePluginManager.java           | 507 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ .../engine/SimpleEnginePluginContext.java     |  33 +++++++++++++++++++++++++++++++++
+ .../violetcore/engine/VioletCoreCommand.java  | 137 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ .../org/bukkit/craftbukkit/CraftServer.java   |   18 ++++++++++++++++++
+ .../java/org/bukkit/craftbukkit/Main.java     |  17 +++++++++++++++++
+ 9 files changed, 1102 insertions(+)
  create mode 100644 src/main/java/io/violetmc/violetcore/engine/EnginePluginConfig.java
  create mode 100644 src/main/java/io/violetmc/violetcore/engine/EnginePluginDescriptionParser.java
  create mode 100644 src/main/java/io/violetmc/violetcore/engine/EnginePluginInstance.java
@@ -26,39 +25,35 @@ diff --git a/src/main/java/io/papermc/paper/ServerBuildInfoImpl.java b/src/main/
 index 1b0ee48e28aaa68ddb1f28c23d3c5f5f40505c98..9425347e7471fa0f7473b94c6a8f34c2c1a0d054 100644
 --- a/src/main/java/io/papermc/paper/ServerBuildInfoImpl.java
 +++ b/src/main/java/io/papermc/paper/ServerBuildInfoImpl.java
-@@ -18,6 +18,7 @@ public record ServerBuildInfoImpl(
-     String brandName,
-     String minecraftVersionId,
-     String minecraftVersionName,
-+    Optional<String> implementationVersion,
-     OptionalInt buildNumber,
-     Instant buildTime,
-     Optional<String> gitBranch,
-@@ -27,6 +28,7 @@ public record ServerBuildInfoImpl(
+@@ -27,6 +27,11 @@ public record ServerBuildInfoImpl(
      private static final String ATTRIBUTE_BRAND_NAME = "Brand-Name";
      private static final String ATTRIBUTE_BUILD_TIME = "Build-Time";
      private static final String ATTRIBUTE_BUILD_NUMBER = "Build-Number";
 +    private static final String ATTRIBUTE_IMPLEMENTATION_VERSION = "Implementation-Version"; // VioletCore - release version string
++    // VioletCore - resolved once from the jar manifest; empty for dev/non-release builds
++    private static final Optional<String> VIOLETCORE_RELEASE_VERSION =
++        getManifestAttribute(JarManifests.manifest(ServerBuildInfoImpl.class), ATTRIBUTE_IMPLEMENTATION_VERSION)
++            .filter(value -> value.contains("-v"));
      private static final String ATTRIBUTE_GIT_BRANCH = "Git-Branch";
      private static final String ATTRIBUTE_GIT_COMMIT = "Git-Commit";
  
-@@ -48,6 +50,7 @@ public record ServerBuildInfoImpl(
-                 .orElse(BRAND_PURPUR_NAME), // Purpur - Rebrand
-             SharedConstants.getCurrentVersion().id(),
-             SharedConstants.getCurrentVersion().name(),
-+            getManifestAttribute(manifest, ATTRIBUTE_IMPLEMENTATION_VERSION), // VioletCore - release version string
-             getManifestAttribute(manifest, ATTRIBUTE_BUILD_NUMBER)
-                 .map(Integer::parseInt)
-                 .map(OptionalInt::of)
-@@ -67,6 +70,17 @@ public record ServerBuildInfoImpl(
+@@ -67,6 +68,25 @@ public record ServerBuildInfoImpl(
  
      @Override
      public @NotNull String asString(final @NotNull StringRepresentation representation) {
-+        // VioletCore start - prefer the release version from the manifest when present.
-+        // Paper's default string is <mcVersion>-DEV-<branch>@<hash>; for VioletCore releases
-+        // we want <mcVersion>-v<violetcoreVersion>-<hash>.
-+        if (this.implementationVersion.isPresent() && this.implementationVersion.get().contains("-v")) {
-+            final String value = this.implementationVersion.get();
++        // VioletCore start - prefer the release version recorded in the jar manifest.
++        // Paper's default string is <mcVersion>-DEV-<branch>@<hash>; for VioletCore
++        // releases we want <mcVersion>-v<violetcoreVersion>-<hash>.
++        //
++        // This is read into a static rather than added as a record component on purpose:
++        // ServerBuildInfoImpl is the ServiceLoader-provided implementation of the
++        // @ApiStatus.NonExtendable ServerBuildInfo API record, and it also exposes a
++        // public no-arg constructor that delegates to the canonical one. Inserting a
++        // component would change the canonical constructor signature and the accessor
++        // order, break that delegation, and make the patch reject on any upstream edit
++        // near the component list.
++        if (VIOLETCORE_RELEASE_VERSION.isPresent()) {
++            final String value = VIOLETCORE_RELEASE_VERSION.get();
 +            if (representation == StringRepresentation.VERSION_FULL) {
 +                return value + " (" + this.buildTime.truncatedTo(ChronoUnit.SECONDS) + ")";
 +            }
@@ -68,18 +63,6 @@ index 1b0ee48e28aaa68ddb1f28c23d3c5f5f40505c98..9425347e7471fa0f7473b94c6a8f34c2
          final StringBuilder sb = new StringBuilder();
          sb.append(this.minecraftVersionId);
          sb.append('-');
-diff --git a/src/main/java/io/papermc/paper/command/PaperCommands.java b/src/main/java/io/papermc/paper/command/PaperCommands.java
-index e81dcd83d0e74969a7bab09ea09d349be5f0a741..51c407e69b59f4a187af249ee10d096b7b6f0628 100644
---- a/src/main/java/io/papermc/paper/command/PaperCommands.java
-+++ b/src/main/java/io/papermc/paper/command/PaperCommands.java
-@@ -23,6 +23,7 @@ public final class PaperCommands {
- 
-     public static void registerCommands(final MinecraftServer server) {
-         COMMANDS.put("paper", new PaperCommand("paper"));
-+        COMMANDS.put("violetcore", new io.violetmc.violetcore.engine.VioletCoreCommand("violetcore"));
- 
-         COMMANDS.forEach((s, command) -> {
-             server.server.getCommandMap().register(s, "Paper", command);
 diff --git a/src/main/java/io/violetmc/violetcore/engine/EnginePluginConfig.java b/src/main/java/io/violetmc/violetcore/engine/EnginePluginConfig.java
 new file mode 100644
 index 0000000000000000000000000000000000000000..f75360fd595a21cd4c5c53ea19fa8c29da708069
@@ -1021,7 +1004,7 @@ new file mode 100644
 index 0000000000000000000000000000000000000000..72357827d27401e9e6fb3535f934555fc9b652d2
 --- /dev/null
 +++ b/src/main/java/io/violetmc/violetcore/engine/VioletCoreCommand.java
-@@ -0,0 +1,118 @@
+@@ -0,0 +1,137 @@
 +package io.violetmc.violetcore.engine;
 +
 +import io.violetmc.violetcore.engine.api.EnginePluginDescription;
@@ -1039,6 +1022,23 @@ index 0000000000000000000000000000000000000000..72357827d27401e9e6fb3535f934555f
 +
 +public final class VioletCoreCommand extends Command {
 +    private static final String PERMISSION = "bukkit.command.violetcore";
++    private static final String FALLBACK_PREFIX = "violetcore";
++    private static volatile boolean registered;
++
++    /**
++     * Registers {@code /violetcore} on the running server.
++     *
++     * <p>Called from {@code CraftServer#enablePlugins(PluginLoadOrder.POSTWORLD)} so the
++     * command exists on a normally started server. Registration is idempotent because
++     * {@code enablePlugins} also runs again during {@code reload()}.</p>
++     */
++    public static void register(final org.bukkit.command.CommandMap commandMap) {
++        if (registered) {
++            return;
++        }
++        registered = true;
++        commandMap.register(FALLBACK_PREFIX, new VioletCoreCommand("violetcore"));
++    }
 +
 +    public VioletCoreCommand(final String name) {
 +        super(name);
@@ -1046,6 +1046,8 @@ index 0000000000000000000000000000000000000000..72357827d27401e9e6fb3535f934555f
 +        this.usageMessage = "/violetcore [status|engineplugins|hooks|config|reloadconfig|stats|resetstats|version]";
 +        this.setAliases(List.of("vc", "vcore"));
 +        this.setPermission(PERMISSION);
++        // Registration happens after Bukkit.setServer and pluginManager assignment, so
++        // the plugin manager is always available here.
 +        try {
 +            Bukkit.getServer().getPluginManager().addPermission(new Permission(PERMISSION, PermissionDefault.OP));
 +        } catch (IllegalArgumentException ignored) {
@@ -1144,19 +1146,38 @@ diff --git a/src/main/java/org/bukkit/craftbukkit/CraftServer.java b/src/main/ja
 index ec9dd18d380db6e153dfc704a86b578fc0458eb5..cf421a819e1aa4cd1ed820a1a59b78c2dead51df 100644
 --- a/src/main/java/org/bukkit/craftbukkit/CraftServer.java
 +++ b/src/main/java/org/bukkit/craftbukkit/CraftServer.java
-@@ -962,6 +962,12 @@ public final class CraftServer implements Server {
- 
-     @Override
-     public void reload() {
-+        // VioletCore start - Engine Plugins are restart-only
+@@ -597,6 +597,14 @@ public final class CraftServer implements Server {
+             DefaultPermissions.registerCorePermissions();
+             CraftDefaultPermissions.registerCorePermissions();
+             if (!io.papermc.paper.configuration.GlobalConfiguration.get().misc.loadPermissionsYmlBeforePlugins) this.loadCustomPermissions(); // Paper
++            // VioletCore start - register /violetcore on the normal boot path.
++            // PaperCommands.registerCommands(MinecraftServer) is only ever invoked from
++            // CraftServer#reload, so registering there left the command unavailable on a
++            // freshly started server - and unreachable entirely once the restart-only
++            // guard below cancels reloads. Registering here runs before syncCommands()
++            // and after pluginManager/commandMap are initialised.
++            io.violetmc.violetcore.engine.VioletCoreCommand.register(this.commandMap);
++            // VioletCore end - register /violetcore on the normal boot path
+             this.syncCommands();
+         }
+     }
+@@ -952,6 +959,16 @@ public final class CraftServer implements Server {
+             throw new IllegalStateException(org.bukkit.command.defaults.ReloadCommand.RELOADING_DISABLED_MESSAGE);
+         }
+         // Paper end - lifecycle events
++        // VioletCore start - Engine Plugins are restart-only.
++        // Checked after Paper's own lifecycle guard so Paper's policy keeps precedence,
++        // and thrown rather than returned so /reload reports failure instead of
++        // silently appearing to succeed.
 +        if (io.violetmc.violetcore.engine.EnginePluginManager.hasLoadedPlugins() && !Boolean.getBoolean("VioletCore.AllowReloadWithEnginePlugins")) {
-+            this.getLogger().severe("Reload cancelled: VioletCore Engine Plugins are loaded (" + io.violetmc.violetcore.engine.EnginePluginManager.describeLoadedPlugins() + "). Engine Plugins are restart-only; stop the server and start it again instead.");
-+            return;
++            throw new IllegalStateException("Reload cancelled: VioletCore Engine Plugins are loaded ("
++                + io.violetmc.violetcore.engine.EnginePluginManager.describeLoadedPlugins()
++                + "). Engine Plugins are restart-only; stop the server and start it again instead.");
 +        }
 +        // VioletCore end - Engine Plugins are restart-only
-         // Paper start - lifecycle events
-         if (io.papermc.paper.plugin.lifecycle.event.LifecycleEventRunner.INSTANCE.blocksPluginReloading()) {
-             throw new IllegalStateException(org.bukkit.command.defaults.ReloadCommand.RELOADING_DISABLED_MESSAGE);
+         org.spigotmc.WatchdogThread.hasStarted = false; // Paper - Disable watchdog early timeout on reload
+         this.reloadCount++;
+         this.configuration = YamlConfiguration.loadConfiguration(this.getConfigFile());
 diff --git a/src/main/java/org/bukkit/craftbukkit/Main.java b/src/main/java/org/bukkit/craftbukkit/Main.java
 index e6ea34b18c6db63efa77bb67d3484e4d66315ed6..03193e76ae35b5a978766e5233fc39af3d096e2f 100644
 --- a/src/main/java/org/bukkit/craftbukkit/Main.java

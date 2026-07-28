@@ -1,5 +1,6 @@
 MIT License
 
+Copyright (c) 2019-2024 PurpurMC
 Copyright (c) 2026 VioletCore contributors
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -20,4 +21,12 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
-Note: upstream projects and dependencies keep their own licenses. See NOTICE.md.
+---
+
+This repository is a fork of PurpurMC/Purpur and redistributes Purpur source
+files (see purpur-api/src and purpur-server/src) under the MIT terms above.
+The PurpurMC copyright line is retained as required by the MIT License.
+
+The built server jar additionally contains code from Paper, Spigot, Bukkit and
+CraftBukkit, which is licensed under the GNU General Public License version 3.
+See NOTICE.md for the full breakdown of upstream licensing.
